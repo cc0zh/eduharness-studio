@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+.dot-grid-canvas {
+  background-color: #f7f9f8;
+  background-image: radial-gradient(#cbd5e1 1.15px, transparent 1.15px);
+  background-size: 20px 20px;
+}

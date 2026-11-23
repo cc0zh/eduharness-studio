@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "baseUrl": ".",
+    "paths": {
+      "@eduharness-studio/engine": ["./packages/engine/src/index.ts"]
+    }
+  },
+  "include": [
+    "packages/engine/src/**/*.ts",
+    "packages/engine/test/**/*.ts",
+    "apps/server/src/**/*.ts"
+  ]
+}

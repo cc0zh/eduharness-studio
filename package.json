@@ -1,0 +1,34 @@
+{
+  "name": "eduharness-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "workspaces": [
+    "packages/engine",
+    "apps/server",
+    "apps/web"
+  ],
+  "scripts": {
+    "prepare": "node scripts/setup-hooks.mjs",
+    "dev": "node scripts/dev.mjs",
+    "build": "npm --workspace @eduharness-studio/web run build",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p apps/web/tsconfig.json",
+    "check:boundaries": "node scripts/check-boundaries.mjs",
+    "check:docs": "node scripts/check-docs.mjs",
+    "check:hygiene": "node scripts/check-code-hygiene.mjs",
+    "check:static": "node scripts/check-static.mjs",
+    "test": "node scripts/run-tests.mjs",
+    "check": "node scripts/check.mjs"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.8",
+    "@types/node": "^22.15.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3"
+  }
+}

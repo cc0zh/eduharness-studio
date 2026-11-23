@@ -1,0 +1,13 @@
+{
+  "name": "@eduharness-studio/engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "1.5.2",
+    "@sinclair/typebox": "0.34.52"
+  }
+}
