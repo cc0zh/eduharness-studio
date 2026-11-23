@@ -8,6 +8,7 @@ import {
   type Keypoint,
   KeypointSchema,
 } from './protocol.js';
+import { sanitizeSvg } from './static-svg.js';
 
 export const LessonKeypointsSchema = Type.Array(KeypointSchema, { minItems: 2, maxItems: 6 });
 export const LessonScriptSchema = Type.Object({
@@ -16,6 +17,13 @@ export const LessonScriptSchema = Type.Object({
 });
 export type LessonScript = Static<typeof LessonScriptSchema>;
 export type LessonMetadata = Pick<LessonScript, 'keypoints'>;
+
+export function validateLessonScript(input: unknown): input is LessonScript {
+  if (!Value.Check(LessonScriptSchema, input)) return false;
+  return input.actions.every(
+    (action) => action.type !== 'graph' || sanitizeSvg(action.svg_markup) !== undefined,
+  );
+}
 
 const positiveId = Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER });
 export const LessonStreamSchema = Type.Object({ generation: positiveId });
@@ -63,7 +71,15 @@ export function compileLesson(sections: readonly ScriptSection[]): LessonScript 
     });
   }
   const script = { keypoints, actions };
-  if (!Value.Check(LessonScriptSchema, script)) throw new Error('Invalid offline lesson script');
+  if (!validateLessonScript(script)) throw new Error('Invalid offline lesson script');
+  const overflow = actions.find(
+    (action) =>
+      (action.type === 'board' || action.type === 'graph' || action.type === 'new_column') &&
+      action.column > 3,
+  );
+  if (overflow) {
+    throw new Error(`Offline lesson columns must not exceed 3 (step ${overflow.step_id})`);
+  }
   return script;
 }
 

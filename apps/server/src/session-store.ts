@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import {
   type LessonBeat,
   type LessonScript,
-  LessonScriptSchema,
   readLessonBeat,
+  validateLessonScript,
 } from '@eduharness-studio/engine';
 import { type Static, Type } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
@@ -92,7 +92,7 @@ export function createSessionStore({ db }: StudioDatabase) {
       if (!row) return undefined;
       const { generation, script_json } = row;
       const script: unknown = typeof script_json === 'string' ? JSON.parse(script_json) : null;
-      if (typeof generation !== 'number' || !Value.Check(LessonScriptSchema, script)) {
+      if (typeof generation !== 'number' || !validateLessonScript(script)) {
         throw new Error('Invalid stored lesson session');
       }
       append(id, 'stream', { generation });

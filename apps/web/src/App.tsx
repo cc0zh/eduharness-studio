@@ -47,7 +47,7 @@ export function App() {
               Eduharness课堂
             </a>
           </div>
-          <Badge variant="secondary">离线学习</Badge>
+          <Badge variant="secondary">离线确定性模式</Badge>
         </nav>
       </header>
       {courseId ? (

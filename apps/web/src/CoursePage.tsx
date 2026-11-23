@@ -1,9 +1,13 @@
 import type { CourseBlueprint, LessonRef } from '@eduharness-studio/engine';
 import { ArrowRight, LockKeyhole } from 'lucide-react';
+import { lazy, Suspense } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { coursePath, lessonPath, useRead } from '@/lib/courses';
-import { LessonWhiteboard } from './LessonWhiteboard';
+
+const LessonWhiteboard = lazy(() =>
+  import('./LessonWhiteboard').then(({ LessonWhiteboard }) => ({ default: LessonWhiteboard })),
+);
 
 export function CoursePage({ courseId, lessonId }: { courseId: string; lessonId?: string }) {
   const { data: course, error, retry } = useRead<CourseBlueprint>(coursePath(courseId));
@@ -128,12 +132,20 @@ function Whiteboard({ course, lessonId }: { course: CourseBlueprint; lessonId: s
       : lesson.title;
 
   return lesson && lesson.status !== 'locked' ? (
-    <LessonWhiteboard
-      key={`${course.id}:${lessonId}`}
-      title={lesson.title}
-      summary={lesson.summary}
-      path={lessonPath({ courseId: course.id, lessonId })}
-    />
+    <Suspense
+      fallback={
+        <p role="status" className="mx-auto max-w-4xl px-5 py-12 text-sm text-muted">
+          正在加载课堂…
+        </p>
+      }
+    >
+      <LessonWhiteboard
+        key={`${course.id}:${lessonId}`}
+        title={lesson.title}
+        summary={lesson.summary}
+        path={lessonPath({ courseId: course.id, lessonId })}
+      />
+    </Suspense>
   ) : (
     <div className="mx-auto max-w-4xl px-5 py-12">
       <section

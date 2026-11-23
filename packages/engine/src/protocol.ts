@@ -1,5 +1,6 @@
 import { type Static, Type } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
+import { sanitizeSvg } from './static-svg.js';
 
 export const PROTOCOL_VERSION = '0.1.0';
 
@@ -12,20 +13,25 @@ export const DepthTagSchema = Type.Union([
 ]);
 export type DepthTag = Static<typeof DepthTagSchema>;
 
+// Keep the published protocol able to read historic 4+ column snapshots.
+const BoardColumnSchema = Type.Integer({ minimum: 1 });
+const FormulaSchema = Type.Optional(Type.String({ minLength: 1 }));
+
 export const BoardActionSchema = Type.Object({
   type: Type.Literal('board'),
   step_id: Type.Integer({ minimum: 1 }),
-  column: Type.Integer({ minimum: 1 }),
+  column: BoardColumnSchema,
   card_id: Type.String({ minLength: 1 }),
   title: Type.Optional(Type.String({ minLength: 1 })),
   depth: Type.Optional(DepthTagSchema),
   content: Type.String({ minLength: 1 }),
+  formula: FormulaSchema,
 });
 
 export const NewColumnActionSchema = Type.Object({
   type: Type.Literal('new_column'),
   step_id: Type.Integer({ minimum: 1 }),
-  column: Type.Integer({ minimum: 1 }),
+  column: BoardColumnSchema,
 });
 
 export const NewPageActionSchema = Type.Object({
@@ -43,15 +49,41 @@ export const HighlightActionSchema = Type.Object({
   style: Type.Union([Type.Literal('highlight'), Type.Literal('circle')]),
 });
 
+export const GraphDiagramSchema = Type.Object(
+  {
+    nodes: Type.Array(
+      Type.Object(
+        { id: Type.String({ minLength: 1 }), label: Type.String({ minLength: 1 }) },
+        {
+          additionalProperties: false,
+        },
+      ),
+      { minItems: 1 },
+    ),
+    edges: Type.Array(
+      Type.Object(
+        {
+          from: Type.String({ minLength: 1 }),
+          to: Type.String({ minLength: 1 }),
+          label: Type.Optional(Type.String({ minLength: 1 })),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+  },
+  { additionalProperties: false },
+);
+
 export const GraphActionSchema = Type.Object({
   type: Type.Literal('graph'),
   step_id: Type.Integer({ minimum: 1 }),
-  column: Type.Integer({ minimum: 1 }),
+  column: BoardColumnSchema,
   card_id: Type.String({ minLength: 1 }),
   title: Type.String({ minLength: 1 }),
   depth: Type.Optional(DepthTagSchema),
   svg_markup: Type.String({ minLength: 1 }),
-  formula: Type.Optional(Type.String({ minLength: 1 })),
+  formula: FormulaSchema,
+  diagram: Type.Optional(GraphDiagramSchema),
 });
 
 export const SpeakActionSchema = Type.Object({
@@ -130,7 +162,21 @@ export function validateActions(
   input: unknown,
 ): { ok: true; actions: ActionBatch } | { ok: false; errors: string[] } {
   if (Value.Check(ActionBatchSchema, input)) {
-    return { ok: true, actions: input };
+    const actionErrors = input.flatMap((action, index) => {
+      if (
+        (action.type === 'board' || action.type === 'graph' || action.type === 'new_column') &&
+        action.column > 3
+      ) {
+        return [`/${index}/column: authored board pages support at most three columns`];
+      }
+      if (action.type === 'graph' && !sanitizeSvg(action.svg_markup)) {
+        return [`/${index}/svg_markup: must be a safe static SVG document`];
+      }
+      return [];
+    });
+    return actionErrors.length === 0
+      ? { ok: true, actions: input }
+      : { ok: false, errors: actionErrors };
   }
   const errors = [...Value.Errors(ActionBatchSchema, input)].map(
     (err) => `${err.path || '/'}: ${err.message}`,

@@ -1,10 +1,19 @@
-import { cacheLesson, distanceLesson } from './demo-scripts.js';
+import { BAYES_DEMO_ID, TRANSFORMER_DEMO_ID } from './demo-courses.js';
+import { bayesLesson, transformerLesson } from './demo-scripts.js';
+import {
+  LEGACY_CACHE_DEMO_ID,
+  LEGACY_DISTANCE_DEMO_ID,
+  legacyCacheLesson,
+  legacyDistanceLesson,
+} from './legacy-demo-scripts.js';
 import { compileLesson, type LessonScript, type ScriptSection } from './lesson-playback.js';
 import type { CourseBlueprint, LessonRef } from './protocol.js';
 
 export function offlineLesson(course: CourseBlueprint, lesson: LessonRef): LessonScript {
-  if (course.id === 'demo-point-line-distance') return distanceLesson();
-  if (course.id === 'demo-http-cache') return cacheLesson();
+  if (course.id === BAYES_DEMO_ID) return bayesLesson();
+  if (course.id === TRANSFORMER_DEMO_ID) return transformerLesson();
+  if (course.id === LEGACY_DISTANCE_DEMO_ID) return legacyDistanceLesson();
+  if (course.id === LEGACY_CACHE_DEMO_ID) return legacyCacheLesson();
 
   // The persisted blueprint encodes the foundation and goal choices, including for pre-M1-2 courses.
   const lessons = course.units.flatMap((unit) => unit.lessons);

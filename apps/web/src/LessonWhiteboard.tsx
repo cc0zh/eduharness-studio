@@ -1,6 +1,6 @@
 import { type LessonMetadata, projectKeypointProgress } from '@eduharness-studio/engine';
 import { Pause, Play, Send, SkipForward } from 'lucide-react';
-import type { FormEvent } from 'react';
+import { type FormEvent, useState } from 'react';
 import { useRead } from '@/lib/courses';
 import { BoardStage } from './BoardStage';
 import { LessonProgress } from './LessonProgress';
@@ -44,11 +44,13 @@ export function LessonWhiteboard(props: LessonProps) {
 
 function PlayingLesson({ path, title, summary, keypoints }: LessonProps & LessonMetadata) {
   const playback = useLessonPlayback(path);
+  const [pinnedPage, setPinnedPage] = useState<number>();
   const progress = projectKeypointProgress(keypoints, playback.played);
   const ask = playback.played.find(
     ({ type, step_id }) => type === 'ask' && step_id === playback.askStep,
   );
-  const canvas = projectBoard(playback.played);
+  const pages = projectBoard(playback.played);
+  const latestPage = pages.length - 1;
   const caption = latestCaption(playback.played);
   const status =
     playback.end === 'done'
@@ -99,7 +101,11 @@ function PlayingLesson({ path, title, summary, keypoints }: LessonProps & Lesson
       </section>
 
       <div className="mt-5">
-        <BoardStage canvas={canvas} />
+        <BoardStage
+          pages={pages}
+          pageIndex={Math.min(pinnedPage ?? latestPage, latestPage)}
+          onPageChange={(index) => setPinnedPage(index === latestPage ? undefined : index)}
+        />
       </div>
 
       {ask && ask.type === 'ask' && (

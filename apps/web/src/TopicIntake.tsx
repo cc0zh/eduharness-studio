@@ -93,7 +93,9 @@ export function TopicIntake() {
       <h2 id="topic-title" className="text-xl font-bold">
         按主题建课
       </h2>
-      <p className="mt-1 text-sm text-muted">告诉我们你的起点与目标，得到一张课程蓝图。</p>
+      <p className="mt-1 text-sm text-muted">
+        根据你的起点和目标离线生成课程蓝图，不连接外部模型。
+      </p>
       <form className="mt-5" onSubmit={(event) => void submit(event)}>
         <div hidden={step !== null}>
           <label htmlFor="topic" className="mb-2 block text-sm font-semibold">

@@ -1,5 +1,5 @@
 export { type CourseSummary, generateBlueprint, type LessonEntry } from './blueprints.js';
-export { demoCourses } from './demo-courses.js';
+export { BAYES_DEMO_ID, demoCourses, TRANSFORMER_DEMO_ID } from './demo-courses.js';
 export {
   type Foundation,
   type FoundationStep,
@@ -22,6 +22,7 @@ export {
   readCurrentLessonBeat,
   readLessonBeat,
   readLessonGeneration,
+  validateLessonScript,
 } from './lesson-playback.js';
 export { offlineLesson } from './offline-scripts.js';
 export {
@@ -42,6 +43,7 @@ export {
   type DepthTag,
   DepthTagSchema,
   GraphActionSchema,
+  GraphDiagramSchema,
   HighlightActionSchema,
   type Keypoint,
   KeypointCompleteActionSchema,
@@ -63,3 +65,4 @@ export {
   type TeachingState,
   truncateOnInterrupt,
 } from './state.js';
+export { sanitizeSvg } from './static-svg.js';

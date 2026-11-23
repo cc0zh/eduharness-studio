@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { readLessonBeat, readLessonGeneration } from '@eduharness-studio/engine';
+import { BAYES_DEMO_ID, readLessonBeat, readLessonGeneration } from '@eduharness-studio/engine';
 import { createServerApp } from '../apps/server/src/app.js';
 import { openStudioDatabase } from '../apps/server/src/db.js';
 
-const lessonPath = '/api/courses/demo-point-line-distance/lessons/u1-l1';
+const lessonPath = `/api/courses/${BAYES_DEMO_ID}/lessons/u1-l1`;
 
 test('lesson API: a new stream replays the unplayed beat, rejects stale writes, and waits for an answer', {
   timeout: 12_000,
@@ -98,7 +98,7 @@ test('lesson API: a new stream replays the unplayed beat, rejects stale writes, 
   }
   assert.equal(beat?.action.type, 'ask');
   const askStep = beat.action.step_id;
-  const answer = { generation: 2, ask_step_id: askStep, text: 'EH is perpendicular to AD.' };
+  const answer = { generation: 2, ask_step_id: askStep, text: '8 是分子，8+18 是报警人数分母。' };
   assert.equal((await post('answer', answer)).status, 409);
   assert.equal((await progress(2, askStep)).status, 200);
   assert.equal((await progress(2, askStep)).status, 200);
@@ -124,15 +124,34 @@ test('lesson API: a new stream replays the unplayed beat, rejects stale writes, 
     const action = readLessonBeat(frame.data)?.action;
     assert.ok(action);
     assert.equal((await progress(3, action.step_id)).status, 200);
-    frame = await afterAnswer.next();
+    if (action.type === 'ask') {
+      const pending = afterAnswer.next();
+      assert.equal(
+        await Promise.race([pending.then(() => 'sent'), delay(40, 'waiting')]),
+        'waiting',
+      );
+      assert.equal(
+        (
+          await post('answer', {
+            generation: 3,
+            ask_step_id: action.step_id,
+            text: '按题目给出的样本，分母是所有报警的包裹。',
+          })
+        ).status,
+        200,
+      );
+      frame = await pending;
+    } else {
+      frame = await afterAnswer.next();
+    }
   }
   assert.deepEqual(frame, { event: 'done', data: { generation: 3 } });
   assert.equal(getCursor()?.state, 'completed');
   const storedAnswers = database.db
     .prepare("SELECT payload_json FROM session_events WHERE session_id = ? AND kind = 'answer'")
     .all(id);
-  assert.equal(storedAnswers.length, 1);
-  assert.equal(storedAnswers[0].payload_json, JSON.stringify(answer));
+  assert.equal(storedAnswers.length, 3);
+  assert.ok(storedAnswers.some(({ payload_json }) => payload_json === JSON.stringify(answer)));
   const replaced = database.db
     .prepare(
       "SELECT payload_json FROM session_events WHERE session_id = ? AND kind = 'superseded' ORDER BY id",

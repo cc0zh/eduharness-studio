@@ -1,6 +1,7 @@
-import type { DepthTag } from '@eduharness-studio/engine';
-import { ArrowDown, Network } from 'lucide-react';
-import type { BoardCanvas, BoardCard, BoardMark } from './lesson-playback';
+import { type DepthTag, sanitizeSvg } from '@eduharness-studio/engine';
+import { ChevronLeft, ChevronRight, Network } from 'lucide-react';
+import { BoardFormula } from './BoardFormula';
+import type { BoardCard, BoardMark, BoardPage } from './lesson-playback';
 
 const depthLabel: Record<DepthTag, string> = {
   intuition: '直觉',
@@ -10,46 +11,91 @@ const depthLabel: Record<DepthTag, string> = {
   application: '应用',
 };
 
-export function BoardStage({ canvas }: { canvas: BoardCanvas }) {
+export function BoardStage({
+  pages,
+  pageIndex,
+  onPageChange,
+}: {
+  pages: readonly BoardPage[];
+  pageIndex: number;
+  onPageChange: (index: number) => void;
+}) {
+  const page = pages[pageIndex];
+  const latest = pages.length - 1;
+  const pageButton =
+    'grid size-9 place-items-center rounded-lg border border-border bg-white text-primary hover:bg-primary-soft/50 focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-40';
   return (
     <section
       aria-label="白板画布"
       className="dot-grid-canvas min-h-[48vh] rounded-[1.75rem] border border-slate-200/80 p-4 sm:p-6 lg:p-8"
     >
       <div className="mx-auto max-w-6xl">
-        <div className="mb-5 flex items-center gap-2 text-sm font-semibold text-slate-600">
-          <span className="grid size-8 place-items-center rounded-lg bg-primary-soft text-primary">
-            <Network aria-hidden="true" className="size-4" />
-          </span>
-          <span data-page-title>{canvas.pageTitle}</span>
-          <span
-            aria-hidden="true"
-            className="ml-auto flex items-center gap-1 text-xs font-normal text-muted"
-          >
-            按栏铺开 <ArrowDown className="size-3" />
-          </span>
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-slate-600">
+            <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary-soft text-primary">
+              <Network aria-hidden="true" className="size-4" />
+            </span>
+            <span data-page-title className="[overflow-wrap:anywhere]">
+              {page.title}
+            </span>
+          </div>
+          <nav aria-label="白板分页" className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className={pageButton}
+              aria-label="上一页"
+              disabled={pageIndex === 0}
+              onClick={() => onPageChange(pageIndex - 1)}
+            >
+              <ChevronLeft aria-hidden="true" className="size-4" />
+            </button>
+            <span aria-live="polite" className="text-xs font-semibold tabular-nums text-slate-600">
+              第 {pageIndex + 1}/{pages.length} 页
+            </span>
+            <button
+              type="button"
+              className={pageButton}
+              aria-label="下一页"
+              disabled={pageIndex === latest}
+              onClick={() => onPageChange(pageIndex + 1)}
+            >
+              <ChevronRight aria-hidden="true" className="size-4" />
+            </button>
+            {pageIndex !== latest && (
+              <button
+                type="button"
+                onClick={() => onPageChange(latest)}
+                className="min-h-9 rounded-lg px-2 text-xs font-semibold text-primary underline underline-offset-2 hover:bg-primary-soft/50 focus-visible:outline-2 focus-visible:outline-primary"
+              >
+                回到最新页
+              </button>
+            )}
+          </nav>
         </div>
-        <div
-          data-board-columns={canvas.columns}
-          className="grid items-start gap-4 overflow-x-auto"
+        <section
+          key={pageIndex}
+          aria-label="板书分栏"
+          data-board-page={page.id}
+          data-board-columns={page.columns}
+          className="grid min-w-0 items-start gap-4 overflow-x-auto overscroll-x-contain pb-3"
           style={{
-            gridTemplateColumns: `repeat(${canvas.columns}, minmax(min(100%, 260px), 1fr))`,
+            gridTemplateColumns: `repeat(${page.columns}, minmax(min(100%, 19rem), 1fr))`,
           }}
         >
-          {columnSlots(canvas.columns).map(({ id, number }) => (
+          {columnSlots(page.columns).map(({ id, number }) => (
             <section key={id} aria-label={`板书第 ${number} 栏`} className="min-w-0 space-y-4">
               <div className="flex items-center gap-2 px-1 text-xs font-semibold tracking-wide text-slate-400">
                 <span className="size-1.5 rounded-full bg-primary/50" /> 栏{' '}
                 {String(number).padStart(2, '0')}
               </div>
-              {canvas.cards
+              {page.cards
                 .filter(({ action }) => action.column === number)
                 .map((card) => (
                   <BoardCardView key={card.action.card_id} card={card} />
                 ))}
             </section>
           ))}
-        </div>
+        </section>
       </div>
     </section>
   );
@@ -59,6 +105,7 @@ function BoardCardView({ card }: { card: BoardCard }) {
   const { action, marks } = card;
   const title = action.title ?? '板书';
   const depth = action.depth ?? 'intuition';
+  const svg = action.type === 'graph' ? sanitizeSvg(action.svg_markup) : undefined;
   return (
     <article
       data-board-card={action.card_id}
@@ -80,26 +127,22 @@ function BoardCardView({ card }: { card: BoardCard }) {
             </span>
           ))}
         </p>
+      ) : svg ? (
+        <figure
+          data-graph="true"
+          className="mt-4 overflow-hidden rounded-xl border border-slate-100 bg-slate-50 p-2"
+        >
+          <figcaption className="sr-only">{title}：示意图</figcaption>
+          <img
+            src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`}
+            alt={title}
+            className="block h-auto w-full"
+          />
+        </figure>
       ) : (
-        <>
-          <figure
-            data-graph="true"
-            className="mt-4 overflow-hidden rounded-xl border border-slate-100 bg-slate-50 p-2"
-          >
-            <figcaption className="sr-only">{title}：示意图</figcaption>
-            <img
-              src={svgImageSource(action.svg_markup)}
-              alt={title}
-              className="block h-auto w-full"
-            />
-          </figure>
-          {action.formula && (
-            <p className="mt-3 rounded-xl border border-primary/10 bg-primary-soft/25 px-3 py-3 text-center font-mono text-sm font-semibold text-primary [overflow-wrap:anywhere]">
-              {action.formula}
-            </p>
-          )}
-        </>
+        <p className="mt-3 text-sm text-muted">这张示意图暂不可显示。</p>
       )}
+      {action.formula && <BoardFormula formula={action.formula} />}
     </article>
   );
 }
@@ -132,10 +175,6 @@ function columnSlots(count: number) {
 
 function textLines(content: string) {
   return content.split('\n').map((text, position) => ({ id: `line-${position}`, text }));
-}
-
-function svgImageSource(markup: string) {
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`;
 }
 
 function MarkedText({ mark, children }: { mark: BoardMark; children: string }) {

@@ -9,32 +9,57 @@ export interface BoardCard {
   action: BoardCardAction;
   marks: BoardMark[];
 }
-export interface BoardCanvas {
+export interface BoardPage {
+  id: string;
+  title: string;
   cards: BoardCard[];
   columns: number;
-  pageTitle: string;
+  stepIds: number[];
+  cardIds: string[];
 }
 
-export function projectBoard(actions: readonly Action[]): BoardCanvas {
-  const canvas: BoardCanvas = { cards: [], columns: 1, pageTitle: '白板课堂' };
+function blankPage(id: string, title: string): BoardPage {
+  return { id, title, cards: [], columns: 1, stepIds: [], cardIds: [] };
+}
+
+export function projectBoard(actions: readonly Action[]): BoardPage[] {
+  let page = blankPage('opening', '白板课堂');
+  const pages = [page];
   for (const action of actions) {
+    if (action.type === 'board' || action.type === 'graph' || action.type === 'ask') {
+      page.cardIds.push(action.card_id);
+    }
     if (action.type === 'new_page') {
-      canvas.cards = [];
-      canvas.columns = 1;
-      canvas.pageTitle = action.title ?? '新的一页';
+      page = blankPage(action.page_id, action.title ?? '新的一页');
+      pages.push(page);
     } else if (action.type === 'new_column') {
-      canvas.columns = Math.max(canvas.columns, action.column);
+      page.columns = Math.max(page.columns, Math.min(action.column, 3));
     } else if (action.type === 'board' || action.type === 'graph') {
-      canvas.columns = Math.max(canvas.columns, action.column);
-      canvas.cards.push({ action, marks: [] });
+      const column = Math.min(action.column, 3);
+      page.columns = Math.max(page.columns, column);
+      page.cards.push({ action: { ...action, column }, marks: [] });
     } else if (action.type === 'highlight') {
-      const card = canvas.cards.find(
-        ({ action: cardAction }) => cardAction.card_id === action.card_id,
-      );
+      const card = pages
+        .flatMap(({ cards }) => cards)
+        .find(({ action: cardAction }) => cardAction.card_id === action.card_id);
       if (card) card.marks.push({ target: action.target_text, style: action.style });
     }
+    page.stepIds.push(action.step_id);
   }
-  return canvas;
+  return pages;
+}
+
+// Returns a zero-based page index. Step anchors cover every beat; card anchors also include ask cards.
+export function findBoardPage(
+  pages: readonly BoardPage[],
+  anchor: { step_id: number } | { card_id: string },
+): number | undefined {
+  const index = pages.findIndex((page) =>
+    'step_id' in anchor
+      ? page.stepIds.includes(anchor.step_id)
+      : page.cardIds.includes(anchor.card_id),
+  );
+  return index < 0 ? undefined : index;
 }
 
 export function latestCaption(actions: readonly Action[]) {

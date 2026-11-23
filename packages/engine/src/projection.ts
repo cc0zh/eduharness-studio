@@ -15,10 +15,12 @@ export interface PublicDialogueTurn {
 
 function summarizeAction(action: Action): string | null {
   switch (action.type) {
-    case 'board':
-      return action.title
+    case 'board': {
+      const board = action.title
         ? `[板书: ${action.title}] ${action.content}`
         : `[板书] ${action.content}`;
+      return action.formula ? `${board}\n公式: ${action.formula}` : board;
+    }
     case 'highlight':
       return `[${action.style === 'circle' ? '圈画' : '高亮'}] ${action.target_text}`;
     case 'graph':

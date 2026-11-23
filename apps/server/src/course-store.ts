@@ -8,6 +8,13 @@ import type { StudioDatabase } from './db.js';
 
 export type CourseStore = ReturnType<typeof createCourseStore>;
 
+const demoIds = new Set(demoCourses.map(({ id }) => id));
+
+function isVisibleCourse(id: string) {
+  // Keep obsolete seeded rows (and their sessions) intact without advertising old demos.
+  return !id.startsWith('demo-') || demoIds.has(id);
+}
+
 function decodeBlueprint(raw: unknown): CourseBlueprint {
   if (typeof raw !== 'string') throw new Error('Missing stored blueprint');
   const result = validateBlueprint(JSON.parse(raw));
@@ -44,18 +51,19 @@ export function createCourseStore({ db }: StudioDatabase) {
       return row && decodeBlueprint(row.blueprint_json);
     },
     list(): CourseSummary[] {
-      return list.all().map((row) => {
-        const { id, title, topic, units } = decodeBlueprint(row.blueprint_json);
-        return {
+      return list
+        .all()
+        .map((row) => decodeBlueprint(row.blueprint_json))
+        .filter(({ id }) => isVisibleCourse(id))
+        .map(({ id, title, topic, units }) => ({
           id,
           title,
           topic,
           summary: units[0].lessons[0].summary,
           unitTitles: units.map((unit) => unit.title),
           lessonCount: units.reduce((total, unit) => total + unit.lessons.length, 0),
-          kind: id.startsWith('demo-') ? 'demo' : 'generated',
-        };
-      });
+          kind: demoIds.has(id) ? 'demo' : 'generated',
+        }));
     },
   };
 }

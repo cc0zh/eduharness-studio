@@ -117,6 +117,7 @@ test('projects played whiteboard actions and learner replies into numbered publi
           card_id: 'c1',
           title: '概念拆解',
           content: '边 AD 在 x = 0',
+          formula: 'd = |xₑ − xₕ|',
         },
         { type: 'speak', step_id: 2, text: '先看这条边。' },
         {
@@ -136,6 +137,7 @@ test('projects played whiteboard actions and learner replies into numbered publi
   assert.equal(turns[0].role, 'teacher');
   assert.deepEqual(turns[0].evidenceStepIds, [1, 2, 3]);
   assert.match(turns[0].text, /\[板书: 概念拆解\]/);
+  assert.match(turns[0].text, /公式: d = \|xₑ − xₕ\|/);
   assert.match(turns[0].text, /\[提问\]/);
   assert.equal(turns[1].turnNumber, 2);
   assert.equal(turns[1].role, 'learner');
