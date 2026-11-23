@@ -11,6 +11,7 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "paths": {
+      "@/*": ["./src/*"],
       "@eduharness-studio/engine": ["../../packages/engine/src/index.ts"]
     }
   },

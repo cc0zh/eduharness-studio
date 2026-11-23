@@ -8,9 +8,14 @@
     "build": "vite build"
   },
   "dependencies": {
+    "@base-ui/react": "^1.9.0",
     "@eduharness-studio/engine": "*",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.77.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "tailwind-merge": "^3.7.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.4",

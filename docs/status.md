@@ -8,7 +8,7 @@
 - 轻量三层 npm workspaces 仓库：`packages/engine`、`apps/server`、`apps/web`。
 - 纯引擎层最小硬契约：两层动态课程蓝图 Schema、8 类白板动作 TypeBox Schema、教学状态机与打断截断逻辑、白板→公开对话投影与对应单测。
 - 后端 `apps/server`：Hono + `node:sqlite` 建表探活与 `/api/health`、`/api/meta`。
-- 前端 `apps/web`：React + Vite + Tailwind 点阵白板最小页与 `Agent X-Ray` 占位抽屉，经 Vite proxy 连通本地后端。
+- 前端 `apps/web`：React 19 + Vite + Tailwind v4 点阵白板最小页，外围交互壳接入 7 个 coss ui 原语（`@base-ui/react`：`Button` / `Badge` / `Input` / `Switch` / `Tabs` / `Sheet` / `Dialog`），配 `@/*` 路径别名并经 Vite proxy 连通本地后端。
 - 自动化门禁：秒级 `npm run check:static`（三层导入边界 + 文档防堆放 Lint + 代码卫生/防膨胀/根目录白名单 + Biome + 全仓 `tsc --noEmit`）挂载 `.githooks/pre-commit`（`prepare` 自动启用）；全量 `npm run check` 叠加前端构建、引擎/门禁/M0 E2E 冒烟测试及 `.github/workflows/ci.yml`。
 
 ## 下一步（M1）
