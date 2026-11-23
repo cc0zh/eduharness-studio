@@ -1,3 +1,18 @@
+export { type CourseSummary, generateBlueprint, type LessonEntry } from './blueprints.js';
+export { demoCourses } from './demo-courses.js';
+export {
+  type Foundation,
+  type FoundationStep,
+  type GoalStep,
+  INTAKE_LIMITS,
+  type IntakeAnswers,
+  IntakeGenerateSchema,
+  type IntakeNext,
+  IntakeNextSchema,
+  IntakeStartSchema,
+  nextIntake,
+  startIntake,
+} from './intake.js';
 export {
   type DialogueEvent,
   type PublicDialogueTurn,

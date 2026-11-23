@@ -11,6 +11,8 @@ const ALLOWED_ROOT_FILES = new Set([
   '.env',
   '.env.example',
   '.env.local',
+  '.git', // A linked Git worktree has a gitdir pointer file instead of a directory.
+  '.gitattributes',
   '.gitignore',
   'AGENTS.md',
   'README.md',

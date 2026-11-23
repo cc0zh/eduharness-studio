@@ -1,7 +1,7 @@
 import type * as React from 'react';
 import { cn } from '@/lib/utils';
 
-export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {}
+export interface InputProps extends React.ComponentProps<'input'> {}
 
 export function Input({ className, type = 'text', ...props }: InputProps) {
   return (

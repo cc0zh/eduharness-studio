@@ -108,6 +108,8 @@ test('code hygiene gate rejects stray root files, @ts-ignore, explicit any, and 
   try {
     mkdirSync(join(dir, 'apps/web/src'), { recursive: true });
     writeFileSync(join(dir, 'package.json'), '{}\n');
+    writeFileSync(join(dir, '.git'), 'gitdir: ../.git/worktrees/example\n');
+    assert.doesNotThrow(() => checkCodeHygiene(dir));
     writeFileSync(join(dir, 'stray.txt'), 'oops\n');
     writeFileSync(
       join(dir, 'apps/web/src/bloated.ts'),
