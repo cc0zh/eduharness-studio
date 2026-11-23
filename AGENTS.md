@@ -5,5 +5,5 @@
 - 三层架构严格隔离：`packages/engine`（纯引擎，零 React/HTTP/SQLite/Node 耦合）、`apps/server`（Node 22 + Hono + `node:sqlite`）、`apps/web`（React + Vite + Tailwind）。
 - 仅 `packages/engine/src/models.ts` 允许导入 `@earendil-works/pi-ai`；密钥只从环境变量或页面临时 BYOK 传入，严禁写入仓库。未获预算授权不发真实付费模型请求。
 - 以 E2E 场景验证为主，纯逻辑硬边界补单测；本地提交触发 `.githooks/pre-commit`（`npm run check:static`），每次阶段交付须通过 `npm run check`（边界 + 文档 + 卫生/防膨胀 + Biome + 类型检查 + 前端构建 + 全部测试）。
-- 防文档堆放：活文档严守行数上限，历史归入 [docs/archive/](docs/archive/README.md)，教训写入 [docs/learnings/](docs/learnings/README.md)，草稿放 `.tmp/scratch/<任务名>/` 用后清理。
+- 防文档堆放与四分法：能代码/测试拦截的不靠文档，普通 bug 止于回归测试；仅症状≠根因的高代价坑写 5 栏 [docs/learnings/](docs/learnings/README.md) 并浓缩 1 行进本文件（满上限先删旧）；文档禁复述代码实现，活文档严守行数上限，历史归入 [docs/archive/](docs/archive/README.md)，草稿放 `.tmp/scratch/<任务名>/` 用后清理。
 - 排障见 [runbook](docs/runbook.md)，术语见 [glossary](docs/glossary.md)，规划见 [roadmap](docs/plans/roadmap.md)，记录见 [history](docs/history.md)。
