@@ -78,7 +78,7 @@ test('graph accepts old scripts without optional diagram and validates structure
   assert.equal(GraphActionSchema.type, 'object');
 });
 
-test('stored lesson reads keep the old column range while new fixture authoring remains at three columns', () => {
+test('stored lessons and new fixture authoring both reject a fourth column', () => {
   const course = demoCourses[0];
   const source = offlineLesson(course, course.units[0].lessons[0]);
   const legacy = {
@@ -87,7 +87,7 @@ test('stored lesson reads keep the old column range while new fixture authoring 
       action.type === 'board' ? { ...action, column: 4 } : action,
     ),
   };
-  assert.equal(validateLessonScript(legacy), true);
+  assert.equal(validateLessonScript(legacy), false);
   assert.equal(validateActions(legacy.actions).ok, false);
 
   const wideBoard = {
@@ -107,6 +107,7 @@ test('stored lesson reads keep the old column range while new fixture authoring 
           title: '超宽板书',
           objective: '使用新增单栏限制。',
           depth: 'application',
+          verification: '核对分栏。',
           beats: [
             {
               type: 'board',
@@ -121,10 +122,11 @@ test('stored lesson reads keep the old column range while new fixture authoring 
           title: '后续要点',
           objective: '满足脚本的最小要点数。',
           depth: 'application',
+          verification: '核对结果。',
           beats: [{ type: 'speak', text: '续讲。' }],
         },
       ]),
-    /columns must not exceed 3/,
+    /Invalid offline lesson script/,
   );
 });
 

@@ -1,4 +1,22 @@
-import type { Action } from '@eduharness-studio/engine';
+import type { Action, LessonRecord } from '@eduharness-studio/engine';
+
+export function recordKey(record: LessonRecord) {
+  switch (record.kind) {
+    case 'subtitle':
+      return `subtitle-${record.step_id}`;
+    case 'answer':
+      return `answer-${record.ask_step_id}`;
+    case 'interrupt':
+      return `interrupt-${record.generation}`;
+  }
+}
+
+export function shouldFollowLatestPage(
+  pinned: { id: string; step: number } | null,
+  playedStep: number,
+): boolean {
+  return pinned === null || pinned.step < playedStep;
+}
 
 export type BoardCardAction = Extract<Action, { type: 'board' | 'graph' }>;
 export interface BoardMark {
@@ -33,11 +51,10 @@ export function projectBoard(actions: readonly Action[]): BoardPage[] {
       page = blankPage(action.page_id, action.title ?? '新的一页');
       pages.push(page);
     } else if (action.type === 'new_column') {
-      page.columns = Math.max(page.columns, Math.min(action.column, 3));
+      page.columns = Math.max(page.columns, action.column);
     } else if (action.type === 'board' || action.type === 'graph') {
-      const column = Math.min(action.column, 3);
-      page.columns = Math.max(page.columns, column);
-      page.cards.push({ action: { ...action, column }, marks: [] });
+      page.columns = Math.max(page.columns, action.column);
+      page.cards.push({ action, marks: [] });
     } else if (action.type === 'highlight') {
       const card = pages
         .flatMap(({ cards }) => cards)

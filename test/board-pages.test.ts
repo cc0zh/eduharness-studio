@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { demoCourses, offlineLesson } from '@eduharness-studio/engine';
-import { findBoardPage, projectBoard } from '../apps/web/src/lesson-playback.js';
+import {
+  findBoardPage,
+  projectBoard,
+  shouldFollowLatestPage,
+} from '../apps/web/src/lesson-playback.js';
 
 test('projectBoard preserves complete immutable history when a script advances to new pages', () => {
   const script = offlineLesson(demoCourses[0], demoCourses[0].units[0].lessons[0]);
@@ -41,6 +45,13 @@ test('page indexing follows newest page but an operator-pinned index stays expli
   assert.equal(withNewPage.length - 1, 1);
 });
 
+test('a pinned historical page stays visible until playback advances, then follows the displayed beat', () => {
+  const pin = { id: 'opening', step: 8 };
+  assert.equal(shouldFollowLatestPage(null, 8), true);
+  assert.equal(shouldFollowLatestPage(pin, 8), false);
+  assert.equal(shouldFollowLatestPage(pin, 9), true);
+});
+
 test('highlights on a new page still mark cards retained on a historical page', () => {
   const script = offlineLesson(demoCourses[0], demoCourses[0].units[0].lessons[0]);
   const actions = [
@@ -60,34 +71,4 @@ test('highlights on a new page still mark cards retained on a historical page', 
     ),
   );
   assert.equal(findBoardPage(pages, { card_id: 'alarm-setup' }), 0);
-});
-
-test('historic columns are read as three scrollable columns without losing their card ids', () => {
-  const pages = projectBoard([
-    { type: 'board', step_id: 1, column: 4, card_id: 'historic-4', content: '旧快照第4栏' },
-    { type: 'new_column', step_id: 2, column: 5 },
-    { type: 'new_page', step_id: 3, page_id: 'later' },
-    {
-      type: 'graph',
-      step_id: 4,
-      column: 5,
-      card_id: 'historic-5',
-      title: '旧第5栏',
-      svg_markup: '<svg/>',
-    },
-  ]);
-  assert.deepEqual(
-    pages.map(({ columns }) => columns),
-    [3, 3],
-  );
-  assert.deepEqual(
-    pages[0].cards.map(({ action }) => action.column),
-    [3],
-  );
-  assert.equal(pages[0].cards[0].action.card_id, 'historic-4');
-  assert.deepEqual(
-    pages[1].cards.map(({ action }) => action.card_id),
-    ['historic-5'],
-  );
-  assert.deepEqual(findBoardPage(pages, { card_id: 'historic-5' }), 1);
 });

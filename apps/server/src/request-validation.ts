@@ -4,7 +4,7 @@ import { validator } from 'hono/validator';
 
 export const RouteIdSchema = Type.String({ pattern: '^[a-z0-9-]+$', minLength: 1, maxLength: 80 });
 
-export function checked<Target extends 'json' | 'param', Schema extends TSchema>(
+export function checked<Target extends 'json' | 'param' | 'query', Schema extends TSchema>(
   target: Target,
   schema: Schema,
 ) {

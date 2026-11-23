@@ -20,9 +20,26 @@ export type LessonMetadata = Pick<LessonScript, 'keypoints'>;
 
 export function validateLessonScript(input: unknown): input is LessonScript {
   if (!Value.Check(LessonScriptSchema, input)) return false;
-  return input.actions.every(
-    (action) => action.type !== 'graph' || sanitizeSvg(action.svg_markup) !== undefined,
-  );
+  const cards = new Set<string>();
+  const boardCards = new Set<string>();
+  const pages = new Set(['opening']);
+  let lastStep = 0;
+  return input.actions.every((action) => {
+    if (action.step_id <= lastStep) return false;
+    lastStep = action.step_id;
+    if (action.type === 'new_page') {
+      if (pages.has(action.page_id)) return false;
+      pages.add(action.page_id);
+    } else if (action.type === 'highlight') {
+      return boardCards.has(action.card_id);
+    } else if (action.type === 'board' || action.type === 'graph' || action.type === 'ask') {
+      if (cards.has(action.card_id)) return false;
+      cards.add(action.card_id);
+      if (action.type !== 'ask') boardCards.add(action.card_id);
+      if (action.type === 'graph' && !sanitizeSvg(action.svg_markup)) return false;
+    }
+    return true;
+  });
 }
 
 const positiveId = Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER });
@@ -51,35 +68,43 @@ export function readLessonGeneration(input: unknown): number | undefined {
   return Value.Check(LessonStreamSchema, input) ? input.generation : undefined;
 }
 
-type ActionDraft = {
+export type ActionDraft = {
   [Kind in ActionKind]: Omit<Extract<Action, { type: Kind }>, 'step_id'>;
 }[ActionKind];
 
-export type ScriptSection = Omit<Keypoint, 'status'> & { beats: readonly ActionDraft[] };
+export type ScriptSection = Omit<Keypoint, 'status'> & {
+  beats: readonly ActionDraft[];
+  verification: string;
+};
+
+export function sectionBeats(
+  { id, objective, beats, verification }: ScriptSection,
+  after: number,
+): Action[] {
+  const drafts: ActionDraft[] = [
+    ...beats,
+    { type: 'speak', checkpoint: 'verify', text: verification },
+    { type: 'keypoint_complete', keypoint_id: id, summary: objective },
+  ];
+  return drafts.map((beat, i) => ({ ...beat, step_id: after + i + 1 }));
+}
 
 export function compileLesson(sections: readonly ScriptSection[]): LessonScript {
   const keypoints: Keypoint[] = [];
   const actions: Action[] = [];
-  for (const { beats, ...keypoint } of sections) {
-    keypoints.push({ ...keypoint, status: keypoints.length === 0 ? 'active' : 'pending' });
-    for (const beat of beats) actions.push({ ...beat, step_id: actions.length + 1 });
-    actions.push({
-      type: 'keypoint_complete',
-      step_id: actions.length + 1,
-      keypoint_id: keypoint.id,
-      summary: keypoint.objective,
+  for (const section of sections) {
+    const { id, title, objective, depth } = section;
+    keypoints.push({
+      id,
+      title,
+      objective,
+      depth,
+      status: keypoints.length ? 'pending' : 'active',
     });
+    actions.push(...sectionBeats(section, actions.length));
   }
   const script = { keypoints, actions };
   if (!validateLessonScript(script)) throw new Error('Invalid offline lesson script');
-  const overflow = actions.find(
-    (action) =>
-      (action.type === 'board' || action.type === 'graph' || action.type === 'new_column') &&
-      action.column > 3,
-  );
-  if (overflow) {
-    throw new Error(`Offline lesson columns must not exceed 3 (step ${overflow.step_id})`);
-  }
   return script;
 }
 

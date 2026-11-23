@@ -1,163 +1,310 @@
 import { randomUUID } from 'node:crypto';
 import {
+  buildInterruptQueue,
+  canTransition,
   type LessonBeat,
+  type LessonRecord,
   type LessonScript,
+  type PlaybackWriteReceipt,
   readLessonBeat,
+  type SessionSnapshot,
+  stateAfterBeat,
+  type TeachingState,
   validateLessonScript,
 } from '@eduharness-studio/engine';
-import { type Static, Type } from '@sinclair/typebox';
-import { Value } from '@sinclair/typebox/value';
+import type { Static } from '@sinclair/typebox';
 import type { StudioDatabase } from './db.js';
+import { type StoredSession, sessionDatabase } from './session-db.js';
+import type {
+  AnswerSchema,
+  InterruptSchema,
+  ProgressSchema,
+  ResumeSchema,
+} from './session-input.js';
 
-const positiveId = Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER });
-export const ProgressSchema = Type.Object(
-  { generation: positiveId, last_played_step_id: positiveId },
-  { additionalProperties: false },
-);
-export const AnswerSchema = Type.Object(
-  {
-    generation: positiveId,
-    ask_step_id: positiveId,
-    text: Type.String({ pattern: '\\S', maxLength: 1000 }),
-  },
-  { additionalProperties: false },
-);
-
-type ActiveStream = { id: string; generation: number; script: LessonScript };
-type UpdateResult = 'ok' | 'session_not_found' | 'stale_generation' | 'unexpected_step';
-type BeatPoll = { kind: 'beat'; beat: LessonBeat } | { kind: 'waiting' | 'done' | 'superseded' };
+type ActiveStream = { id: string; generation: number; script?: LessonScript; sentStep: number };
+type BeatPoll =
+  | { kind: 'beat'; beat: LessonBeat }
+  | { kind: 'waiting' }
+  | { kind: 'done' | 'interrupted' | 'superseded'; snapshot: SessionSnapshot };
+type WriteError = { error: 'session_not_found' | 'stale_generation' | 'unexpected_step' };
+type WriteResult = PlaybackWriteReceipt | WriteError;
 
 export function createSessionStore({ db }: StudioDatabase) {
-  const insert = db.prepare(`
-    INSERT INTO sessions (id, course_id, lesson_id, state, last_played_step_id, snapshot_json, updated_at)
-    VALUES (?, ?, ?, 'scaffold', NULL, ?, ?)
-  `);
-  const bumpGeneration = db.prepare(`
-    UPDATE sessions
-    SET snapshot_json = json_set(snapshot_json, '$.generation', json_extract(snapshot_json, '$.generation') + 1),
-      updated_at = ?
-    WHERE id = ?
-    RETURNING json_extract(snapshot_json, '$.generation') AS generation,
-      json_extract(snapshot_json, '$.script') AS script_json
-  `);
-  const getCursor = db.prepare(`
-    SELECT json_extract(snapshot_json, '$.generation') AS generation, last_played_step_id
-    FROM sessions WHERE id = ?
-  `);
-  const setPlayed = db.prepare(`
-    UPDATE sessions SET last_played_step_id = ?, updated_at = ?,
-      state = CASE WHEN json_extract(snapshot_json, '$.script.actions[#-1].step_id') = ?
-        THEN 'completed' ELSE state END
-    WHERE id = ?
-  `);
-  const insertEvent = db.prepare(`
-    INSERT INTO session_events (session_id, kind, payload_json, created_at) VALUES (?, ?, ?, ?)
-  `);
-  const getLatest = db.prepare(`
-    SELECT payload_json FROM session_events WHERE session_id = ? AND kind = ? ORDER BY id DESC LIMIT 1
-  `);
+  const store = sessionDatabase(db);
 
-  function append(
-    id: string,
-    kind: 'stream' | 'beat' | 'answer' | 'done' | 'superseded',
-    payload: object,
-  ) {
-    insertEvent.run(id, kind, JSON.stringify(payload), new Date().toISOString());
+  function transition(session: StoredSession, to: TeachingState) {
+    if (session.state === to) return;
+    if (!canTransition(session.state, to)) throw new Error(`Invalid teaching transition to ${to}`);
+    store.append(session.id, 'state', {
+      from: session.state,
+      to,
+      generation: session.queue.generation,
+      step_id: session.lastPlayed,
+    });
+    session.state = to;
   }
 
-  function latest(id: string, kind: 'beat' | 'answer'): unknown {
-    const row = getLatest.get(id, kind);
-    return typeof row?.payload_json === 'string' ? JSON.parse(row.payload_json) : undefined;
+  function snapshot({ id, state, lastPlayed, queue }: StoredSession): SessionSnapshot {
+    return {
+      session_id: id,
+      generation: queue.generation,
+      last_played_step_id: lastPlayed,
+      playedActions: queue.script.actions.filter(({ step_id }) => step_id <= lastPlayed),
+      records: store.records(id),
+      state,
+      askStep: queue.askStep,
+    };
   }
 
-  function lastAnswer(id: string) {
-    const answer = latest(id, 'answer');
-    return Value.Check(AnswerSchema, answer) ? answer : undefined;
+  function streamEnd(id: string, kind: 'done' | 'interrupted' | 'superseded'): BeatPoll {
+    const session = store.load(id);
+    if (!session) throw new Error('Missing lesson session at stream end');
+    return { kind, snapshot: snapshot(session) };
+  }
+
+  function supersede({ id, queue }: StoredSession) {
+    if (queue.generation > 0) store.append(id, 'superseded', { generation: queue.generation });
+  }
+
+  function claim(
+    session: StoredSession,
+    receipt?: Static<typeof ResumeSchema>,
+  ): SessionSnapshot | WriteError {
+    if (
+      receipt &&
+      'generation' in receipt &&
+      receipt.generation === session.queue.generation &&
+      receipt.last_played_step_id > session.lastPlayed
+    ) {
+      const confirmed = acknowledge(session, receipt.last_played_step_id);
+      if ('error' in confirmed) return confirmed;
+    }
+    supersede(session);
+    ++session.queue.generation;
+    if (session.state === 'intake') transition(session, 'diagnose');
+    store.append(session.id, 'stream', { generation: session.queue.generation });
+    store.save(session);
+    return snapshot(session);
+  }
+
+  function owned(id: string, generation: number): StoredSession | WriteError {
+    const session = store.load(id);
+    if (!session) return { error: 'session_not_found' };
+    if (session.queue.retired || session.queue.generation !== generation) {
+      return { error: 'stale_generation' };
+    }
+    return session;
+  }
+
+  function record(session: StoredSession, entry: LessonRecord): PlaybackWriteReceipt {
+    store.append(session.id, entry.kind, entry);
+    return { ok: true, record: entry };
+  }
+
+  function acknowledge(session: StoredSession, stepId: number): WriteResult {
+    if (session.lastPlayed === stepId) {
+      const last = store.lastEvent(session.id, 'subtitle') as LessonRecord | undefined;
+      return last?.kind === 'subtitle' && last.step_id === stepId
+        ? { ok: true, record: last }
+        : { ok: true };
+    }
+    const { queue } = session;
+    const next = queue.script.actions.find(({ step_id }) => step_id > session.lastPlayed);
+    const sent = readLessonBeat(store.lastEvent(session.id, 'beat'));
+    if (
+      stepId !== next?.step_id ||
+      sent?.generation !== queue.generation ||
+      sent.action.step_id !== stepId
+    ) {
+      return { error: 'unexpected_step' };
+    }
+    const state = stateAfterBeat(
+      session.state,
+      next,
+      queue.askStep !== null,
+      next === queue.script.actions.at(-1),
+    );
+    if (!state) return { error: 'unexpected_step' };
+
+    session.lastPlayed = stepId;
+    if (next.type === 'ask') queue.askStep = stepId;
+    transition(session, state);
+    store.save(session);
+    return next.type === 'speak'
+      ? record(session, {
+          kind: 'subtitle',
+          generation: queue.generation,
+          step_id: stepId,
+          text: next.text,
+        })
+      : { ok: true };
   }
 
   return {
-    create(courseId: string, lessonId: string, script: LessonScript) {
-      const id = randomUUID();
-      insert.run(
-        id,
-        courseId,
-        lessonId,
-        JSON.stringify({ generation: 0, script }),
-        new Date().toISOString(),
-      );
-      return id;
+    active(courseId: string, lessonId: string) {
+      return store.readTransaction(() => {
+        const session = store.latest(courseId, lessonId);
+        if (session) return snapshot(session);
+        return store.hasUnversioned(courseId, lessonId)
+          ? { error: 'session_retired' as const }
+          : null;
+      });
     },
-    openStream(id: string): ActiveStream | undefined {
-      const row = bumpGeneration.get(new Date().toISOString(), id);
-      if (!row) return undefined;
-      const { generation, script_json } = row;
-      const script: unknown = typeof script_json === 'string' ? JSON.parse(script_json) : null;
-      if (typeof generation !== 'number' || !validateLessonScript(script)) {
-        throw new Error('Invalid stored lesson session');
-      }
-      append(id, 'stream', { generation });
-      return { id, generation, script };
+    isUnversioned(id: string) {
+      return store.hasUnversionedId(id);
     },
-    poll({ id, generation, script }: ActiveStream): BeatPoll {
-      const cursor = getCursor.get(id);
-      if (cursor?.generation !== generation) {
-        append(id, 'superseded', { generation });
-        return { kind: 'superseded' };
-      }
-      const played =
-        typeof cursor.last_played_step_id === 'number' ? cursor.last_played_step_id : 0;
-      const previous = script.actions.find(({ step_id }) => step_id === played);
-      if (previous?.type === 'ask' && lastAnswer(id)?.ask_step_id !== played) {
-        return { kind: 'waiting' };
-      }
-      const action = script.actions.find(({ step_id }) => step_id > played);
-      if (!action) {
-        append(id, 'done', { generation });
-        return { kind: 'done' };
-      }
-      const sent = readLessonBeat(latest(id, 'beat'));
-      // A suspended client can have one sent-but-unplayed beat, never the rest of the lesson.
-      if (sent?.generation === generation && sent.action.step_id === action.step_id) {
-        return { kind: 'waiting' };
-      }
-      const beat = { generation, seq: (sent?.seq ?? 0) + 1, action };
-      append(id, 'beat', beat);
-      return { kind: 'beat', beat };
+    start(
+      courseId: string,
+      lessonId: string,
+      topic: string,
+      script: LessonScript,
+      restart: boolean,
+    ) {
+      return store.transaction(() => {
+        const previous = store.latest(courseId, lessonId);
+        if (previous && !restart) return { created: false, snapshot: claim(previous) };
+        if (!previous && !restart && store.hasUnversioned(courseId, lessonId)) {
+          return { error: 'session_retired' as const };
+        }
+        if (!validateLessonScript(script)) throw new Error('Invalid lesson script');
+        if (previous) {
+          supersede(previous);
+          previous.queue.retired = true;
+          store.save(previous);
+        }
+        const session = store.insert(randomUUID(), courseId, lessonId, topic, script);
+        store.append(session.id, 'state', { from: null, to: 'intake', generation: 0, step_id: 0 });
+        return { created: true, snapshot: claim(session) };
+      });
     },
-    progress(
+    resume(id: string, receipt?: Static<typeof ResumeSchema>) {
+      return store.transaction(() => {
+        const session = store.load(id);
+        if (!session) {
+          return store.hasUnversionedId(id) ? { error: 'session_retired' as const } : undefined;
+        }
+        if (session.queue.retired) return undefined;
+        return claim(session, receipt);
+      });
+    },
+    openStream(
       id: string,
-      { generation, last_played_step_id }: Static<typeof ProgressSchema>,
-    ): UpdateResult {
-      const cursor = getCursor.get(id);
-      if (!cursor) return 'session_not_found';
-      if (cursor.generation !== generation) return 'stale_generation';
-      if (cursor.last_played_step_id === last_played_step_id) return 'ok';
-      const sent = readLessonBeat(latest(id, 'beat'));
-      if (sent?.generation !== generation || sent.action.step_id !== last_played_step_id) {
-        return 'unexpected_step';
+      generation: number,
+    ): ActiveStream | { error: 'session_retired' } | undefined {
+      const session = store.load(id);
+      if (!session) {
+        return store.hasUnversionedId(id) ? { error: 'session_retired' } : undefined;
       }
-      setPlayed.run(last_played_step_id, new Date().toISOString(), last_played_step_id, id);
-      return 'ok';
+      if (session.queue.generation !== generation || session.queue.retired) {
+        return { id, generation, sentStep: 0 };
+      }
+      if (!validateLessonScript(session.queue.script))
+        throw new Error('Invalid stored lesson session');
+      return { id, generation, script: session.queue.script, sentStep: 0 };
     },
-    answer(id: string, input: Static<typeof AnswerSchema>): UpdateResult {
-      const { generation, ask_step_id, text } = input;
-      const cursor = getCursor.get(id);
-      if (!cursor) return 'session_not_found';
-      if (cursor.generation !== generation) return 'stale_generation';
-      const previous = lastAnswer(id);
-      if (previous?.ask_step_id === ask_step_id) {
-        return previous.text === text ? 'ok' : 'unexpected_step';
-      }
-      const sent = readLessonBeat(latest(id, 'beat'));
-      if (
-        cursor.last_played_step_id !== ask_step_id ||
-        sent?.action.type !== 'ask' ||
-        sent.action.step_id !== ask_step_id
-      ) {
-        return 'unexpected_step';
-      }
-      append(id, 'answer', input);
-      return 'ok';
+    poll(active: ActiveStream): BeatPoll {
+      return store.transaction(() => {
+        const { id, generation, script } = active;
+        const position = store.header(id);
+        if (!script || !position || position.retired || position.generation !== generation) {
+          const ownSuccessor =
+            position?.generation === generation + 1 &&
+            !position.retired &&
+            store.wasInterrupted(id, generation);
+          return streamEnd(id, ownSuccessor ? 'interrupted' : 'superseded');
+        }
+        if (position.askStep !== null) return { kind: 'waiting' };
+        const action = script.actions.find(({ step_id }) => step_id > position.lastPlayed);
+        if (!action && position.state === 'completed') return streamEnd(id, 'done');
+        if (
+          !action ||
+          !stateAfterBeat(position.state, action, false, action === script.actions.at(-1))
+        ) {
+          throw new Error('Lesson action blocked by teaching state');
+        }
+        if (action.step_id === active.sentStep) return { kind: 'waiting' };
+        const sent = readLessonBeat(store.lastEvent(id, 'beat'));
+        // Claim, cursor, sent-event read and issue are serialized across SQLite connections.
+        if (sent?.generation === generation && sent.action.step_id === action.step_id) {
+          active.sentStep = action.step_id;
+          return { kind: 'beat', beat: sent };
+        }
+        const beat = { generation, seq: (sent?.seq ?? 0) + 1, action };
+        store.append(id, 'beat', beat);
+        active.sentStep = action.step_id;
+        return { kind: 'beat', beat };
+      });
+    },
+    progress(id: string, input: Static<typeof ProgressSchema>): WriteResult {
+      return store.transaction(() => {
+        const session = owned(id, input.generation);
+        return 'error' in session ? session : acknowledge(session, input.last_played_step_id);
+      });
+    },
+    answer(
+      id: string,
+      { generation, ask_step_id, text }: Static<typeof AnswerSchema>,
+    ): WriteResult {
+      return store.transaction(() => {
+        const session = owned(id, generation);
+        if ('error' in session) return session;
+        const previous = store.lastEvent(id, 'answer') as LessonRecord | undefined;
+        if (
+          previous?.kind === 'answer' &&
+          previous.ask_step_id === ask_step_id &&
+          previous.text === text.trim()
+        ) {
+          return { ok: true, record: previous };
+        }
+        if (session.queue.askStep !== ask_step_id || session.state !== 'handoff') {
+          return { error: 'unexpected_step' };
+        }
+        session.queue.askStep = null;
+        store.save(session);
+        return record(session, { kind: 'answer', generation, ask_step_id, text: text.trim() });
+      });
+    },
+    interrupt(id: string, input: Static<typeof InterruptSchema>): SessionSnapshot | WriteError {
+      return store.transaction(() => {
+        const session = owned(id, input.generation);
+        if ('error' in session) return session;
+        const { queue } = session;
+        if (
+          session.state === 'completed' ||
+          input.last_played_step_id === queue.script.actions.at(-1)?.step_id
+        ) {
+          return { error: 'unexpected_step' };
+        }
+        if (session.lastPlayed !== input.last_played_step_id) {
+          // The interruption can carry the one committed frame whose standalone ACK is still in flight.
+          const ack = acknowledge(session, input.last_played_step_id);
+          if ('error' in ack) return ack;
+        }
+        const text = input.text.trim();
+        const cut = buildInterruptQueue(
+          queue.script,
+          session.lastPlayed || null,
+          text,
+          queue.topic,
+        );
+        queue.script = { ...queue.script, actions: cut.actions };
+        queue.askStep = null;
+        ++queue.generation;
+        transition(session, 'diagnose');
+        record(session, {
+          kind: 'interrupt',
+          generation: queue.generation,
+          previous_generation: input.generation,
+          last_played_step_id: session.lastPlayed,
+          truncated_step_ids: cut.truncated.map(({ step_id }) => step_id),
+          intent: cut.intent,
+          text,
+        });
+        store.append(id, 'stream', { generation: queue.generation });
+        store.save(session);
+        return snapshot(session);
+      });
     },
   };
 }

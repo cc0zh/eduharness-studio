@@ -14,6 +14,7 @@ export function openStudioDatabase(dbPath: string): StudioDatabase {
     mkdirSync(dirname(dbPath), { recursive: true });
   }
   const db = new DatabaseSync(dbPath);
+  db.exec('PRAGMA busy_timeout = 5000;');
   if (dbPath !== ':memory:') {
     db.exec('PRAGMA journal_mode = WAL;');
   }
@@ -43,6 +44,7 @@ export function openStudioDatabase(dbPath: string): StudioDatabase {
       payload_json TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS sessions_lesson ON sessions (course_id, lesson_id, updated_at);
     CREATE INDEX IF NOT EXISTS session_events_latest ON session_events (session_id, kind, id);
   `);
 

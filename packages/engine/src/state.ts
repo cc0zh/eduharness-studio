@@ -3,17 +3,37 @@ import type { Action } from './protocol.js';
 export type TeachingState = 'intake' | 'diagnose' | 'scaffold' | 'handoff' | 'verify' | 'completed';
 
 const ALLOWED_TRANSITIONS: Record<TeachingState, readonly TeachingState[]> = {
-  intake: ['diagnose', 'scaffold'],
-  diagnose: ['scaffold', 'handoff'],
-  scaffold: ['handoff', 'verify', 'diagnose'],
-  handoff: ['verify', 'scaffold', 'diagnose'],
-  verify: ['scaffold', 'handoff', 'completed'],
+  intake: ['diagnose'],
+  diagnose: ['scaffold'],
+  scaffold: ['handoff', 'diagnose'],
+  handoff: ['verify', 'diagnose'],
+  verify: ['diagnose', 'completed'],
   completed: [],
 };
 
 export function canTransition(from: TeachingState, to: TeachingState): boolean {
   if (from === to) return true;
   return ALLOWED_TRANSITIONS[from].includes(to);
+}
+
+// Evaluate both before dispatch (guard) and on acknowledgement (commit).
+export function stateAfterBeat(
+  state: TeachingState,
+  action: Action,
+  waitingForAnswer: boolean,
+  final: boolean,
+): TeachingState | undefined {
+  if (waitingForAnswer || state === 'intake' || state === 'completed') return undefined;
+  if (final && action.type !== 'keypoint_complete') return undefined;
+  if (action.type === 'keypoint_complete') {
+    return state === 'verify' ? (final ? 'completed' : 'diagnose') : undefined;
+  }
+  if (action.type === 'ask') return state === 'scaffold' ? 'handoff' : undefined;
+  if (action.type === 'speak' && action.checkpoint === 'verify') {
+    return state === 'handoff' ? 'verify' : undefined;
+  }
+  if (state === 'verify') return undefined;
+  return state === 'diagnose' ? 'scaffold' : state;
 }
 
 export interface InterruptResult {

@@ -13,6 +13,7 @@ export {
   nextIntake,
   startIntake,
 } from './intake.js';
+export { buildInterruptQueue, classifyInterrupt } from './interrupt-scripts.js';
 export {
   type LessonBeat,
   type LessonMetadata,
@@ -59,9 +60,24 @@ export {
   validateActions,
   validateBlueprint,
 } from './protocol.js';
+export type {
+  InterruptIntent,
+  LessonEnd,
+  LessonRecord,
+  PlaybackProgressResult,
+  PlaybackWriteReceipt,
+  SessionSnapshot,
+} from './session-protocol.js';
+export {
+  LessonEndSchema,
+  LessonRecordSchema,
+  readLessonEnd,
+  SessionSnapshotSchema,
+} from './session-protocol.js';
 export {
   canTransition,
   type InterruptResult,
+  stateAfterBeat,
   type TeachingState,
   truncateOnInterrupt,
 } from './state.js';

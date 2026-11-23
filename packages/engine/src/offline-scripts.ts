@@ -1,21 +1,12 @@
 import { BAYES_DEMO_ID, TRANSFORMER_DEMO_ID } from './demo-courses.js';
-import { bayesLesson, transformerLesson } from './demo-scripts.js';
-import {
-  LEGACY_CACHE_DEMO_ID,
-  LEGACY_DISTANCE_DEMO_ID,
-  legacyCacheLesson,
-  legacyDistanceLesson,
-} from './legacy-demo-scripts.js';
+import { bayesLesson } from './demo-scripts.js';
 import { compileLesson, type LessonScript, type ScriptSection } from './lesson-playback.js';
 import type { CourseBlueprint, LessonRef } from './protocol.js';
+import { transformerLesson } from './transformer-script.js';
 
 export function offlineLesson(course: CourseBlueprint, lesson: LessonRef): LessonScript {
   if (course.id === BAYES_DEMO_ID) return bayesLesson();
   if (course.id === TRANSFORMER_DEMO_ID) return transformerLesson();
-  if (course.id === LEGACY_DISTANCE_DEMO_ID) return legacyDistanceLesson();
-  if (course.id === LEGACY_CACHE_DEMO_ID) return legacyCacheLesson();
-
-  // The persisted blueprint encodes the foundation and goal choices, including for pre-M1-2 courses.
   const lessons = course.units.flatMap((unit) => unit.lessons);
   const count = Math.max(2, Math.min(6, lessons.length - 1));
   const outline = [
@@ -59,6 +50,7 @@ export function offlineLesson(course: CourseBlueprint, lesson: LessonRef): Lesso
         title,
         objective,
         depth,
+        verification: `回到「${course.topic}」的这个例子核对：${content} 如果你的说明在条件改变后也原样成立，试着补上适用边界。`,
         beats: [
           ...(i === 1 ? [{ type: 'new_column', column: 2 } as const] : []),
           {
@@ -74,16 +66,12 @@ export function offlineLesson(course: CourseBlueprint, lesson: LessonRef): Lesso
             text:
               i === 0 ? `我们先从「${course.topic}」的一个具体情境开始。${objective}` : objective,
           },
-          ...(i === count - 1
-            ? [
-                {
-                  type: 'ask',
-                  card_id: 'apply-check',
-                  mode: 'open',
-                  prompt: `用你自己的话说一说，准备怎样检验对「${course.topic}」的理解？`,
-                } as const,
-              ]
-            : []),
+          {
+            type: 'ask',
+            card_id: `focus-check-${i + 1}`,
+            mode: 'open',
+            prompt: `就「${course.topic}」举一个例子。按「${title}」试做一步：${objective}`,
+          },
         ],
       }),
     ),

@@ -31,7 +31,15 @@ export function createServerApp({ database, mode = 'offline' }: ServerAppOptions
       protocolVersion: PROTOCOL_VERSION,
       mode,
       architecture: 'two-layer-dynamic-curriculum',
-      capabilities: ['course-blueprint', 'dynamic-keypoints', 'beat-action-stream', 'agent-xray'],
+      capabilities: [
+        'course-blueprint',
+        'dynamic-keypoints',
+        'beat-action-stream',
+        'session-restore',
+        'intent-interrupt',
+        'teaching-state',
+        'agent-xray',
+      ],
     });
   });
 

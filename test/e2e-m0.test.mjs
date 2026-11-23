@@ -97,7 +97,7 @@ test('M0 E2E smoke: scripts/dev.mjs launches Hono server + Vite web and proxies 
     assert.equal(health.ok, true);
     assert.equal(health.service, 'eduharness-studio-server');
     assert.equal(health.sqlite, 'ok');
-    assert.equal(health.protocolVersion, '0.1.0');
+    assert.equal(health.protocolVersion, '0.2.0');
     assert.ok(health.tables >= 3);
 
     const metaRes = await fetch(`http://127.0.0.1:${webPort}/api/meta`);

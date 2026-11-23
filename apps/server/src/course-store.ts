@@ -9,10 +9,10 @@ import type { StudioDatabase } from './db.js';
 export type CourseStore = ReturnType<typeof createCourseStore>;
 
 const demoIds = new Set(demoCourses.map(({ id }) => id));
+const retiredDemoIds = new Set(['demo-point-line-distance', 'demo-http-cache']);
 
-function isVisibleCourse(id: string) {
-  // Keep obsolete seeded rows (and their sessions) intact without advertising old demos.
-  return !id.startsWith('demo-') || demoIds.has(id);
+export function isRetiredDemo(id: string) {
+  return retiredDemoIds.has(id);
 }
 
 function decodeBlueprint(raw: unknown): CourseBlueprint {
@@ -34,7 +34,7 @@ export function createCourseStore({ db }: StudioDatabase) {
 
   const insert = db.prepare(insertSql);
   const get = db.prepare('SELECT blueprint_json FROM courses WHERE id = ?');
-  const list = db.prepare('SELECT blueprint_json FROM courses ORDER BY created_at DESC, id');
+  const list = db.prepare('SELECT id, blueprint_json FROM courses ORDER BY created_at DESC, id');
 
   return {
     add(blueprint: CourseBlueprint) {
@@ -47,14 +47,15 @@ export function createCourseStore({ db }: StudioDatabase) {
       );
     },
     get(id: string): CourseBlueprint | undefined {
+      if (isRetiredDemo(id)) return undefined;
       const row = get.get(id);
       return row && decodeBlueprint(row.blueprint_json);
     },
     list(): CourseSummary[] {
       return list
         .all()
+        .filter(({ id }) => !isRetiredDemo(String(id)))
         .map((row) => decodeBlueprint(row.blueprint_json))
-        .filter(({ id }) => isVisibleCourse(id))
         .map(({ id, title, topic, units }) => ({
           id,
           title,
