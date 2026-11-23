@@ -43,6 +43,7 @@ export function openStudioDatabase(dbPath: string): StudioDatabase {
       payload_json TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS session_events_latest ON session_events (session_id, kind, id);
   `);
 
   return {

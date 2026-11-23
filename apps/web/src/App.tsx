@@ -29,21 +29,24 @@ export function App() {
           aria-label="课堂导航"
           className="mx-auto flex h-full max-w-6xl items-center justify-between gap-3 px-5 sm:px-8"
         >
-          {courseId && lessonId ? (
-            <Button variant="outline" render={<a href={coursePath(courseId)} />}>
-              ← 课程蓝图
-            </Button>
-          ) : (
+          <div className="flex min-w-0 items-center gap-3">
+            {courseId && lessonId && (
+              <Button variant="outline" render={<a href={coursePath(courseId)} />}>
+                ← 课程蓝图
+              </Button>
+            )}
             <a
               href="/"
               className="flex items-center gap-2 rounded-md text-sm font-bold text-primary focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
             >
-              <span className="grid size-8 place-items-center rounded-lg bg-primary text-white">
-                <BookOpen className="size-4" aria-hidden="true" />
-              </span>
-              TeachArena 课堂
+              {!(courseId && lessonId) && (
+                <span className="grid size-8 place-items-center rounded-lg bg-primary text-white">
+                  <BookOpen className="size-4" aria-hidden="true" />
+                </span>
+              )}
+              Eduharness课堂
             </a>
-          )}
+          </div>
           <Badge variant="secondary">离线学习</Badge>
         </nav>
       </header>

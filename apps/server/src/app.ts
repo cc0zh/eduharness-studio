@@ -1,7 +1,9 @@
 import { PROTOCOL_VERSION } from '@eduharness-studio/engine';
 import { Hono } from 'hono';
 import { createCourseRoutes } from './course-routes.js';
+import { createCourseStore } from './course-store.js';
 import type { StudioDatabase } from './db.js';
+import { createLessonRoutes } from './lesson-routes.js';
 
 export interface ServerAppOptions {
   database: StudioDatabase;
@@ -33,6 +35,8 @@ export function createServerApp({ database, mode = 'offline' }: ServerAppOptions
     });
   });
 
-  app.route('/api', createCourseRoutes(database));
+  const courses = createCourseStore(database);
+  app.route('/api', createCourseRoutes(courses));
+  app.route('/api', createLessonRoutes(courses, database));
   return app;
 }

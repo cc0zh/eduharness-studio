@@ -14,6 +14,17 @@ export {
   startIntake,
 } from './intake.js';
 export {
+  type LessonBeat,
+  type LessonMetadata,
+  type LessonScript,
+  LessonScriptSchema,
+  projectKeypointProgress,
+  readCurrentLessonBeat,
+  readLessonBeat,
+  readLessonGeneration,
+} from './lesson-playback.js';
+export { offlineLesson } from './offline-scripts.js';
+export {
   type DialogueEvent,
   type PublicDialogueTurn,
   projectActionsToPublicDialogue,

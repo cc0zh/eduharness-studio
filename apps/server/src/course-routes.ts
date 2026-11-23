@@ -8,32 +8,14 @@ import {
   nextIntake,
   startIntake,
 } from '@eduharness-studio/engine';
-import { type TSchema, Type } from '@sinclair/typebox';
-import { Value } from '@sinclair/typebox/value';
+import { Type } from '@sinclair/typebox';
 import { Hono } from 'hono';
-import { validator } from 'hono/validator';
-import { createCourseStore } from './course-store.js';
-import type { StudioDatabase } from './db.js';
+import type { CourseStore } from './course-store.js';
+import { checked, RouteIdSchema } from './request-validation.js';
 
-const CourseParamsSchema = Type.Object({
-  courseId: Type.String({ pattern: '^[a-z0-9-]+$', minLength: 1, maxLength: 80 }),
-});
+const CourseParamsSchema = Type.Object({ courseId: RouteIdSchema });
 
-function checked<Target extends 'json' | 'param', Schema extends TSchema>(
-  target: Target,
-  schema: Schema,
-) {
-  return validator(target, (input, c) => {
-    if (Value.Check(schema, input)) return input;
-    return c.json(
-      { error: 'invalid_input', field: Value.Errors(schema, input).First()?.path || '/' },
-      400,
-    );
-  });
-}
-
-export function createCourseRoutes(database: StudioDatabase) {
-  const courses = createCourseStore(database);
+export function createCourseRoutes(courses: CourseStore) {
   const routes = new Hono();
 
   routes.get('/courses', (c) => c.json(courses.list()));

@@ -88,7 +88,7 @@ test('M0 E2E smoke: scripts/dev.mjs launches Hono server + Vite web and proxies 
     await waitForHttp(`http://127.0.0.1:${apiPort}/api/health`);
     const htmlRes = await waitForHttp(`http://127.0.0.1:${webPort}/`);
     const html = await htmlRes.text();
-    assert.match(html, /TeachArena 课堂/);
+    assert.match(html, /Eduharness课堂/);
     assert.match(html, /\/src\/main\.tsx/);
 
     const proxiedHealthRes = await fetch(`http://127.0.0.1:${webPort}/api/health`);

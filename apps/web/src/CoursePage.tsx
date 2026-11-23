@@ -3,6 +3,7 @@ import { ArrowRight, LockKeyhole } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { coursePath, lessonPath, useRead } from '@/lib/courses';
+import { LessonWhiteboard } from './LessonWhiteboard';
 
 export function CoursePage({ courseId, lessonId }: { courseId: string; lessonId?: string }) {
   const { data: course, error, retry } = useRead<CourseBlueprint>(coursePath(courseId));
@@ -126,23 +127,27 @@ function Whiteboard({ course, lessonId }: { course: CourseBlueprint; lessonId: s
       ? '学到这里时生成'
       : lesson.title;
 
-  return (
-    <div className="mx-auto max-w-6xl px-5 py-9 sm:px-8 sm:py-14">
+  return lesson && lesson.status !== 'locked' ? (
+    <LessonWhiteboard
+      key={`${course.id}:${lessonId}`}
+      title={lesson.title}
+      summary={lesson.summary}
+      path={lessonPath({ courseId: course.id, lessonId })}
+    />
+  ) : (
+    <div className="mx-auto max-w-4xl px-5 py-12">
       <section
         aria-labelledby="lesson-title"
-        className="max-w-2xl rounded-2xl border border-border bg-surface p-5 shadow-sm sm:p-8"
+        className="rounded-2xl border border-border bg-surface p-6 shadow-sm"
       >
-        <p className="text-sm font-medium text-primary">白板课堂{unit && ` · ${unit.title}`}</p>
-        <h1
-          id="lesson-title"
-          className="mt-3 text-3xl font-bold tracking-tight [overflow-wrap:anywhere]"
-        >
+        <p className="text-sm font-medium text-primary">
+          Eduharness课堂{unit && ` · ${unit.title}`}
+        </p>
+        <h1 id="lesson-title" className="mt-3 text-2xl font-bold tracking-tight">
           {title}
         </h1>
-        <p className="mt-3 text-sm leading-relaxed text-muted [overflow-wrap:anywhere]">
-          {lesson && lesson.status !== 'locked'
-            ? lesson.summary
-            : '请返回课程蓝图，选择已经就绪的课节。'}
+        <p className="mt-3 text-sm leading-relaxed text-muted">
+          请返回课程蓝图，选择已经就绪的课节。
         </p>
       </section>
     </div>

@@ -6,6 +6,8 @@ import {
 } from '@eduharness-studio/engine';
 import type { StudioDatabase } from './db.js';
 
+export type CourseStore = ReturnType<typeof createCourseStore>;
+
 function decodeBlueprint(raw: unknown): CourseBlueprint {
   if (typeof raw !== 'string') throw new Error('Missing stored blueprint');
   const result = validateBlueprint(JSON.parse(raw));

@@ -1,4 +1,4 @@
-# eduharness-studio（TeachArena 课堂）
+# eduharness-studio（Eduharness课堂）
 
 面向 1 对 1 交互式学习的轻量分栏白板课堂与工程透视工作室，与评测门禁仓库 `eduharness` 组成双项目组合。
 
