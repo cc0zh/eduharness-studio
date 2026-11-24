@@ -1,19 +1,17 @@
 import {
-  BAYES_DEMO_ID,
   evaluateOfflineQuality,
   type LessonEnd,
   type LessonMetadata,
   offlineLesson,
   projectPlayedDialogue,
   type SessionQuality,
-  TRANSFORMER_DEMO_ID,
 } from '@eduharness-studio/engine';
 import type { ModelGateway } from '@eduharness-studio/engine/models';
 import { createTeacherPlanner, type TeacherTool } from '@eduharness-studio/engine/teacher';
 import { Type } from '@sinclair/typebox';
 import { type Context, Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { type CourseStore, isRetiredDemo } from './course-store.js';
+import { type CourseStore, isDemoCourse, isRetiredDemo } from './course-store.js';
 import type { StudioDatabase } from './db.js';
 import { checked, RouteIdSchema } from './request-validation.js';
 import {
@@ -64,10 +62,7 @@ export function createLessonRoutes(
   routes.get(LESSON_PATH, checked('param', LessonParams), async (c) => {
     const result = resolveLesson(c.req.valid('param'));
     if (!result.course) return c.json({ error: result.error }, result.status);
-    const live =
-      result.course.id !== BAYES_DEMO_ID &&
-      result.course.id !== TRANSFORMER_DEMO_ID &&
-      (await gateway.getStatus()).mode === 'live';
+    const live = !isDemoCourse(result.course.id) && (await gateway.getStatus()).mode === 'live';
     const script = live
       ? (result.material?.script ?? offlineLesson(result.course, result.lesson))
       : offlineLesson(result.course, result.lesson);
@@ -91,10 +86,7 @@ export function createLessonRoutes(
       const params = c.req.valid('param');
       const result = resolveLesson(params);
       if (!result.course) return c.json({ error: result.error }, result.status);
-      const live =
-        params.courseId !== BAYES_DEMO_ID &&
-        params.courseId !== TRANSFORMER_DEMO_ID &&
-        (await gateway.getStatus()).mode === 'live';
+      const live = !isDemoCourse(params.courseId) && (await gateway.getStatus()).mode === 'live';
       const material = live ? result.material : undefined;
       const started = await sessions.start({
         ...params,

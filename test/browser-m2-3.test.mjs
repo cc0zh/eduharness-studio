@@ -193,10 +193,20 @@ test('M2-3 Chromium: loopback curriculum, lazy unlock, persistence and authorita
   );
   assert.equal(postOfflineCalls.length, preOfflineCallCount);
 
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${url}/courses/${courseId}`);
+  await page.getByRole('link', { name: '进入白板' }).nth(1).waitFor();
+  assert.equal(await page.getByRole('button', { name: '解锁并进入' }).count(), 2);
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+  await screenshot(page, '06-blueprint-390px.png');
+
   assert.deepEqual(errors, []);
   assert.deepEqual(external, []);
   assert.equal(logs().includes(modelMockKey), false);
   for (const [name, bytes] of Object.entries(databaseFiles())) {
     assert.equal(bytes.includes(modelMockKey), false, `BYOK key persisted in ${name}`);
   }
+  console.log(
+    'M2-3 evidence: overlapping unlocks made one model request; console errors=0; external origins=0',
+  );
 });

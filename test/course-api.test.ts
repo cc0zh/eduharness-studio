@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type TestContext, test } from 'node:test';
 import { setImmediate as nextTurn } from 'node:timers/promises';
-import { offlineLesson } from '@eduharness-studio/engine';
+import { demoCourses, offlineLesson } from '@eduharness-studio/engine';
 import {
   createFauxModelGateway,
   fauxAssistantMessage,
@@ -113,30 +113,26 @@ test('live course generation stores dynamic lessons and coalesces a concurrent l
   const first = allLessons[1];
   const path = `/api/courses/${blueprint.id}/lessons/${first.id}/unlock`;
   const initialScript = offlineLesson(blueprint, allLessons[0]);
-  const lastStep = initialScript.actions.at(-1).step_id;
-  const completedScript = {
+  const outcomes = initialScript.actions.filter((action) => action.type === 'keypoint_complete');
+  const previousScript = {
     ...initialScript,
-    actions: [
-      ...initialScript.actions,
-      {
-        type: 'keypoint_complete',
-        step_id: lastStep + 1,
-        keypoint_id: initialScript.keypoints[0].id,
-        summary: initialScript.keypoints[0].objective,
-      },
-    ],
+    actions: initialScript.actions.map((action) =>
+      action.type === 'keypoint_complete' && action.keypoint_id === outcomes[1].keypoint_id
+        ? { type: 'keypoint_unverified', step_id: action.step_id, keypoint_id: action.keypoint_id }
+        : action,
+    ),
   };
   database.db
     .prepare(
       'INSERT INTO sessions (id, course_id, lesson_id, state, last_played_step_id, snapshot_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
     )
     .run(
-      'completed-first-lesson',
+      'in-progress-first-lesson',
       blueprint.id,
       allLessons[0].id,
-      'completed',
-      lastStep + 1,
-      JSON.stringify({ script: completedScript }),
+      'diagnose',
+      outcomes[1].step_id,
+      JSON.stringify({ script: previousScript }),
       new Date().toISOString(),
     );
   const firstUnlock = app.request(path, { method: 'POST' });
@@ -151,8 +147,13 @@ test('live course generation stores dynamic lessons and coalesces a concurrent l
     [200, 200],
   );
   assert.equal(faux.state.callCount, 2);
-  assert.match(unlockPrompt, /Confirmed keypoints from preceding completed lessons/);
-  assert.match(unlockPrompt, /选一个切入点/);
+  const previous = unlockPrompt.match(
+    /^Confirmed keypoints from preceding(?: completed)? lessons: (.+)$/m,
+  );
+  assert.ok(previous, unlockPrompt);
+  assert.deepEqual(JSON.parse(previous[1]), [
+    { ...initialScript.keypoints[0], status: 'completed' },
+  ]);
 
   const refreshed = await app.request(`/api/courses/${blueprint.id}`);
   const persisted = await refreshed.json();
@@ -258,6 +259,30 @@ test('offline course unlock uses the deterministic lesson script without a model
     .get(blueprint.id, locked.id) as { material_json: string } | undefined;
   assert.ok(material);
   assert.deepEqual(JSON.parse(material.material_json).script, offlineLesson(blueprint, locked));
+  assert.equal(faux.state.callCount, 0);
+});
+
+test('demo entry stays offline and a demo follow-up does not reopen the first lesson or call the model', async (t) => {
+  const { app, database, faux, structured } = fixture(t);
+  faux.setResponses([structured(lesson)]);
+  for (const course of demoCourses) {
+    const [first, followUp] = course.units[0].lessons;
+    const path = `/api/courses/${course.id}/lessons/${followUp.id}`;
+    const response = await app.request(`${path}/unlock`, { method: 'POST' });
+    assert.equal(response.status, 200);
+    const started = await app.request(`${path}/sessions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    assert.equal(started.status, 201);
+    const { session_id: id } = await started.json();
+    const row = database.db.prepare('SELECT snapshot_json FROM sessions WHERE id = ?').get(id);
+    const queue = JSON.parse(String(row?.snapshot_json));
+    assert.notDeepEqual(queue.script, offlineLesson(course, first));
+    assert.equal(queue.script.keypoints[0].objective, followUp.summary);
+    assert.equal(queue.teacher, undefined);
+  }
   assert.equal(faux.state.callCount, 0);
 });
 

@@ -5,8 +5,10 @@ import type { CourseBlueprint, LessonRef } from './protocol.js';
 import { transformerLesson } from './transformer-script.js';
 
 export function offlineLesson(course: CourseBlueprint, lesson: LessonRef): LessonScript {
-  if (course.id === BAYES_DEMO_ID) return bayesLesson();
-  if (course.id === TRANSFORMER_DEMO_ID) return transformerLesson();
+  if (course.units[0]?.lessons[0]?.id === lesson.id) {
+    if (course.id === BAYES_DEMO_ID) return bayesLesson();
+    if (course.id === TRANSFORMER_DEMO_ID) return transformerLesson();
+  }
   const lessons = course.units.flatMap((unit) => unit.lessons);
   const count = Math.max(2, Math.min(6, lessons.length - 1));
   const outline = [

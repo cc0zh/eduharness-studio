@@ -115,7 +115,7 @@ export function createCourseLessonPlanner(gateway: Pick<ModelGateway, 'generate'
           })),
         })}`,
         `Target lesson: ${JSON.stringify(lesson)}`,
-        `Confirmed keypoints from preceding completed lessons: ${JSON.stringify(previousKeypoints.slice(-12))}`,
+        `Confirmed keypoints from preceding lessons: ${JSON.stringify(previousKeypoints.slice(-12))}`,
       ].join('\n'),
     });
     const keypoints = result.value.keypoints.map((point, index) => ({

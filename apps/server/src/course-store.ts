@@ -3,6 +3,7 @@ import {
   type CourseSummary,
   demoCourses,
   type Keypoint,
+  projectKeypointProgress,
   validateBlueprint,
   validateLessonScript,
 } from '@eduharness-studio/engine';
@@ -13,6 +14,10 @@ export type CourseStore = ReturnType<typeof createCourseStore>;
 
 const demoIds = new Set(demoCourses.map(({ id }) => id));
 const retiredDemoIds = new Set(['demo-point-line-distance', 'demo-http-cache']);
+
+export function isDemoCourse(id: string) {
+  return demoIds.has(id);
+}
 
 export function isRetiredDemo(id: string) {
   return retiredDemoIds.has(id);
@@ -45,9 +50,11 @@ export function createCourseStore({ db }: StudioDatabase) {
   const getMaterial = db.prepare(
     'SELECT material_json FROM course_lessons WHERE course_id = ? AND lesson_id = ?',
   );
-  const completedSessions = db.prepare(
-    "SELECT snapshot_json, COALESCE(last_played_step_id, 0) AS lastPlayed FROM sessions WHERE course_id = ? AND lesson_id = ? AND state = 'completed' ORDER BY updated_at DESC",
-  );
+  const playedSessions = db.prepare(`
+    SELECT snapshot_json, last_played_step_id AS lastPlayed FROM sessions
+    WHERE course_id = ? AND lesson_id = ? AND last_played_step_id > 0
+    ORDER BY updated_at, rowid
+  `);
 
   function transaction<T>(write: () => T): T {
     db.exec('BEGIN IMMEDIATE');
@@ -114,46 +121,28 @@ export function createCourseStore({ db }: StudioDatabase) {
     previousKeypoints(courseId: string, lessonId: string): Keypoint[] {
       const blueprint = this.get(courseId);
       if (!blueprint) return [];
-      const preceding: string[] = [];
-      for (const unit of blueprint.units) {
-        for (const lesson of unit.lessons) {
-          if (lesson.id === lessonId) {
-            const confirmed: Keypoint[] = [];
-            for (const previousId of preceding) {
-              const rows = completedSessions.all(courseId, previousId) as {
-                snapshot_json: string;
-                lastPlayed: number;
-              }[];
-              for (const row of rows) {
-                const snapshot: unknown = JSON.parse(row.snapshot_json);
-                if (!snapshot || typeof snapshot !== 'object' || !('script' in snapshot)) continue;
-                const script: unknown = snapshot.script;
-                if (!validateLessonScript(script)) continue;
-                const done = new Set(
-                  script.actions
-                    .filter(
-                      (action) =>
-                        action &&
-                        typeof action === 'object' &&
-                        'step_id' in action &&
-                        typeof action.step_id === 'number' &&
-                        action.step_id <= row.lastPlayed &&
-                        'type' in action &&
-                        action.type === 'keypoint_complete' &&
-                        'keypoint_id' in action &&
-                        typeof action.keypoint_id === 'string',
-                    )
-                    .map((action) => (action as { keypoint_id: string }).keypoint_id),
-                );
-                confirmed.push(...script.keypoints.filter(({ id }) => done.has(id)));
-              }
-            }
-            return confirmed;
+      const lessons = blueprint.units.flatMap(({ lessons }) => lessons);
+      const target = lessons.findIndex(({ id }) => id === lessonId);
+      if (target <= 0) return [];
+      return lessons.slice(0, target).flatMap(({ id }) => {
+        const confirmed = new Map<string, Keypoint>();
+        const rows = playedSessions.all(courseId, id) as {
+          snapshot_json: string;
+          lastPlayed: number;
+        }[];
+        for (const { snapshot_json, lastPlayed } of rows) {
+          const snapshot: unknown = JSON.parse(snapshot_json);
+          if (!snapshot || typeof snapshot !== 'object' || !('script' in snapshot)) continue;
+          const { script } = snapshot;
+          if (!validateLessonScript(script)) continue;
+          const played = script.actions.filter(({ step_id }) => step_id <= lastPlayed);
+          const { keypoints } = projectKeypointProgress(script.keypoints, played);
+          for (const point of keypoints) {
+            if (point.status === 'completed') confirmed.set(point.id, point);
           }
-          preceding.push(lesson.id);
         }
-      }
-      return [];
+        return [...confirmed.values()];
+      });
     },
     list(): CourseSummary[] {
       return list
@@ -167,7 +156,7 @@ export function createCourseStore({ db }: StudioDatabase) {
           summary: units[0].lessons[0].summary,
           unitTitles: units.map((unit) => unit.title),
           lessonCount: units.reduce((total, unit) => total + unit.lessons.length, 0),
-          kind: demoIds.has(id) ? 'demo' : 'generated',
+          kind: isDemoCourse(id) ? 'demo' : 'generated',
         }));
     },
   };

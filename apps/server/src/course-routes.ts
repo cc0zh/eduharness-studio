@@ -16,7 +16,7 @@ import {
 import type { ModelGateway } from '@eduharness-studio/engine/models';
 import { Type } from '@sinclair/typebox';
 import { Hono } from 'hono';
-import { type CourseStore, isRetiredDemo } from './course-store.js';
+import { type CourseStore, isDemoCourse, isRetiredDemo } from './course-store.js';
 import { checked, RouteIdSchema } from './request-validation.js';
 
 const CourseParamsSchema = Type.Object({ courseId: RouteIdSchema });
@@ -47,7 +47,7 @@ export function createCourseRoutes(courses: CourseStore, gateway: ModelGateway) 
       const saved = courses.material(courseId, lessonId);
       const material =
         saved ??
-        ((await gateway.getStatus()).mode === 'live'
+        (!isDemoCourse(courseId) && (await gateway.getStatus()).mode === 'live'
           ? (
               await planLesson({
                 course,
