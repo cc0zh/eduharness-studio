@@ -12,12 +12,14 @@ export interface ServerAppOptions {
   database: StudioDatabase;
   modelGateway?: ModelGateway;
   teacherTools?: readonly TeacherTool[];
+  modelFetch?: typeof globalThis.fetch;
 }
 
 export function createServerApp({
   database,
   modelGateway = createModelGateway(),
   teacherTools,
+  modelFetch = globalThis.fetch,
 }: ServerAppOptions): Hono {
   const app = new Hono();
 
@@ -52,7 +54,7 @@ export function createServerApp({
   });
 
   const courses = createCourseStore(database);
-  app.route('/api', createModelRoutes(modelGateway));
+  app.route('/api', createModelRoutes(modelGateway, modelFetch));
   app.route('/api', createCourseRoutes(courses));
   app.route('/api', createLessonRoutes(courses, database, modelGateway, teacherTools));
   return app;

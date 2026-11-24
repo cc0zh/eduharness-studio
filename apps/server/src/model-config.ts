@@ -22,28 +22,31 @@ export function configureModels(env: Environment, makeGateway = createModelGatew
   process.env.OPENAI_LOG = 'off';
   process.env.ANTHROPIC_LOG = 'off';
   const httpsProxy = env.HTTPS_PROXY?.trim() || env.https_proxy?.trim();
+  const httpProxy = env.HTTP_PROXY?.trim() || env.http_proxy?.trim();
   let dispatcher: EnvHttpProxyAgent | undefined;
+  const modelFetch: typeof globalThis.fetch = (input, init) => {
+    if (httpProxy || httpsProxy) {
+      // Bad proxy configuration only affects model traffic.
+      try {
+        dispatcher ??= new EnvHttpProxyAgent({
+          httpProxy: httpProxy ?? '',
+          httpsProxy: httpsProxy ?? '',
+          noProxy: env.NO_PROXY ?? env.no_proxy ?? '',
+        });
+      } catch {
+        throw new Error('Invalid model proxy configuration');
+      }
+    }
+    const request = { ...init, dispatcher };
+    return globalThis.fetch(input, request);
+  };
   const gateway = makeGateway({
     provider: env.STUDIO_MODEL_PROVIDER?.trim(),
     modelId: env.STUDIO_MODEL_ID?.trim(),
+    baseUrl: env.STUDIO_MODEL_BASE_URL?.trim() || undefined,
     readEnv: (name) => env[name],
-    fetch: httpsProxy
-      ? (input, init) => {
-          // A bad proxy must fail the model request without taking down offline lessons.
-          try {
-            dispatcher ??= new EnvHttpProxyAgent({
-              httpProxy: '',
-              httpsProxy,
-              noProxy: env.NO_PROXY ?? env.no_proxy ?? '',
-            });
-          } catch {
-            throw new Error('Invalid model HTTPS proxy configuration');
-          }
-          const request = { ...init, dispatcher };
-          return globalThis.fetch(input, request);
-        }
-      : undefined,
+    fetch: modelFetch,
   });
 
-  return { gateway, closeModelTransport: async () => dispatcher?.destroy() };
+  return { gateway, modelFetch, closeModelTransport: async () => dispatcher?.destroy() };
 }

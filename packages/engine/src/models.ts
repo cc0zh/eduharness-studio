@@ -1,14 +1,27 @@
 import {
   type Api,
   createModels,
+  createProvider,
   envApiKeyAuth,
   fauxProvider,
   type Model,
   type Models,
 } from '@earendil-works/pi-ai';
+import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { Type } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
+import {
+  ByokSchema,
+  compatibleProvider,
+  containsCredential,
+  ModelConfigError,
+  ModelConnectionSchema,
+  ModelIdSchema,
+  modelConnection,
+  modelEndpoint,
+  normalizeBaseUrl,
+} from './model-configuration.js';
 import type { ModelCatalogEntry } from './model-protocol.js';
 import { type ModelGateway, ModelGenerationError } from './structured-model.js';
 
@@ -19,27 +32,39 @@ export {
 } from './structured-model.js';
 
 // Scope the UI to built-in providers that take a single API key and accept injected fetch.
-const providerIds = ['openai', 'anthropic', 'deepseek', 'moonshotai', 'openrouter'];
+const providerIds = [
+  'openai',
+  'anthropic',
+  'deepseek',
+  'moonshotai',
+  'openrouter',
+  compatibleProvider,
+];
+const modelListProviders = new Set([
+  'openai',
+  'deepseek',
+  'moonshotai',
+  'openrouter',
+  compatibleProvider,
+]);
 const outputTool = 'emit_result';
 const maxAttempts = 2;
-
-const ByokSchema = Type.Object(
-  {
-    provider: Type.String({ minLength: 1, maxLength: 80 }),
-    modelId: Type.String({ minLength: 1, maxLength: 240 }),
-    apiKey: Type.String({ minLength: 1, maxLength: 4096 }),
-  },
-  { additionalProperties: false },
-);
 
 export interface ModelGatewayOptions {
   provider?: string;
   modelId?: string;
+  baseUrl?: string;
   readEnv?: (name: string) => string | undefined;
   fetch?: typeof globalThis.fetch;
 }
 
-type Selection = { model: Model<Api> } & ({ source: 'env' } | { source: 'byok'; apiKey: string });
+type Selection = {
+  model: Model<Api>;
+  baseUrl: string;
+  source: 'env' | 'byok';
+  override?: string;
+  apiKey?: string;
+};
 
 function authContext(readEnv: ModelGatewayOptions['readEnv']) {
   return {
@@ -48,19 +73,61 @@ function authContext(readEnv: ModelGatewayOptions['readEnv']) {
   };
 }
 
+function resolveModel(
+  registry: Models,
+  provider: string,
+  id: string,
+  { baseUrl, override }: { baseUrl: string; override?: string },
+): Model<Api> {
+  const preset = registry.getModel(provider, id);
+  if (preset) {
+    if (provider === 'openrouter' && preset.api === 'anthropic-messages') {
+      return override ? { ...preset, baseUrl: override.replace(/\/v1$/, '') } : preset;
+    }
+    return override ? { ...preset, baseUrl: override } : preset;
+  }
+  const api =
+    provider === compatibleProvider || provider === 'openrouter'
+      ? 'openai-completions'
+      : registry.getModels(provider)[0]?.api;
+  if (!providerIds.includes(provider) || !api) throw new ModelConfigError('invalid_model_config');
+  return {
+    id,
+    name: id,
+    provider,
+    api,
+    baseUrl,
+    reasoning: false,
+    input: ['text'],
+    contextWindow: 8192,
+    maxTokens: 4096,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  };
+}
+
 async function selectFromEnv(
   registry: Models,
-  providers: readonly string[],
+  catalog: readonly ModelCatalogEntry[],
   options: ModelGatewayOptions,
-): Promise<Selection | undefined> {
-  for (const provider of providers) {
-    if (options.provider && provider !== options.provider) continue;
-    const model = options.modelId
-      ? registry.getModel(provider, options.modelId)
-      : registry.getModels(provider)[0];
-    // The supported providers resolve env auth locally, without contacting their endpoint.
-    if (model && (await registry.checkAuth(provider).catch(() => undefined))) {
-      return { model, source: 'env' };
+) {
+  const providerId = options.provider || (options.baseUrl ? compatibleProvider : undefined);
+  for (const provider of catalog) {
+    if (providerId && provider.id !== providerId) continue;
+    const modelId = options.modelId || provider.models[0]?.id;
+    if (!modelId || !Value.Check(ModelIdSchema, modelId)) continue;
+    if (!providerId && !registry.getModel(provider.id, modelId)) continue;
+    try {
+      // The studio providers resolve env auth locally, without contacting their endpoint.
+      const auth = await registry.getAuth(provider.id);
+      if (!auth) continue;
+      const { override, baseUrl } = modelEndpoint(provider, options.baseUrl);
+      const apiKey = auth.auth.apiKey;
+      if ((override && containsCredential(override, apiKey)) || containsCredential(modelId, apiKey))
+        continue;
+      const model = resolveModel(registry, provider.id, modelId, { baseUrl, override });
+      return { model, baseUrl, override, apiKey, source: 'env' } satisfies Selection;
+    } catch {
+      // Bad env configuration must leave the offline classroom usable.
     }
   }
   return undefined;
@@ -74,11 +141,27 @@ function createGateway(
   const catalog = providers.flatMap((id): ModelCatalogEntry[] => {
     const provider = registry.getProvider(id);
     const models = registry.getModels(id).map(({ id, name }) => ({ id, name }));
-    return provider && models.length ? [{ id, name: provider.name ?? id, models }] : [];
+    if (!provider) return [];
+    return [
+      {
+        id,
+        name: provider.name,
+        models,
+        defaultBaseUrl: normalizeBaseUrl(provider.baseUrl ?? registry.getModels(id)[0]?.baseUrl),
+        requiresBaseUrl: id === compatibleProvider,
+        supportsModelList: modelListProviders.has(id),
+      },
+    ];
   });
-  const envSelection = selectFromEnv(registry, providers, options);
+  const envSelection = selectFromEnv(registry, catalog, options);
   let byok: Selection | undefined;
-  async function select() {
+  const transport = options.fetch ?? globalThis.fetch;
+  function requireProvider(id: string) {
+    const provider = catalog.find((entry) => entry.id === id);
+    if (!provider) throw new ModelConfigError('invalid_model_config');
+    return provider;
+  }
+  async function select(): Promise<Selection | undefined> {
     const fallback = await envSelection;
     return byok ?? fallback;
   }
@@ -92,21 +175,42 @@ function createGateway(
             provider: selected.model.provider,
             modelId: selected.model.id,
             source: selected.source,
+            ...(selected.override && { baseUrl: selected.override }),
           }
         : { mode: 'offline', provider: null, modelId: null, source: 'none' };
     },
     getCatalog: () => catalog,
     setByok(credentials) {
-      if (!Value.Check(ByokSchema, credentials)) return false;
-      const { provider, modelId, apiKey } = credentials;
-      const model = providers.includes(provider) && registry.getModel(provider, modelId);
-      const key = apiKey.trim();
-      if (!model || !/^[!-~]+$/.test(key)) return false;
-      byok = { model, source: 'byok', apiKey: key };
+      if (!Value.Check(ByokSchema, credentials)) throw new ModelConfigError('invalid_model_config');
+      const provider = requireProvider(credentials.provider);
+      const saved = byok?.model.provider === provider.id ? byok : undefined;
+      const { baseUrl, apiKey, override } = modelConnection(provider, credentials, saved);
+      if (override && containsCredential(override, byok?.apiKey)) {
+        throw new ModelConfigError('invalid_base_url');
+      }
+      if (
+        containsCredential(credentials.modelId, apiKey) ||
+        containsCredential(credentials.modelId, byok?.apiKey)
+      ) {
+        throw new ModelConfigError('invalid_model_config');
+      }
+      const model = resolveModel(registry, provider.id, credentials.modelId, { baseUrl, override });
+      byok = { model, baseUrl, source: 'byok', apiKey, override };
       return true;
     },
     clearByok() {
       byok = undefined;
+    },
+    async modelListConnection(input) {
+      if (!Value.Check(ModelConnectionSchema, input))
+        throw new ModelConfigError('invalid_model_config');
+      const provider = requireProvider(input.provider);
+      if (!provider.supportsModelList) throw new ModelConfigError('model_list_unsupported');
+      const saved = [byok, await envSelection].filter(
+        (entry) => entry?.model.provider === provider.id,
+      );
+      const { baseUrl, apiKey } = modelConnection(provider, input, ...saved);
+      return { baseUrl, apiKey };
     },
     async generate({
       schema,
@@ -155,7 +259,7 @@ function createGateway(
             },
             {
               apiKey: selected.source === 'byok' ? selected.apiKey : undefined,
-              fetch: options.fetch,
+              fetch: (input, init) => transport(input, { ...init, redirect: 'error' }),
               maxTokens: Math.min(maxTokens, model.maxTokens),
               maxRetries: 0,
               signal: controller.signal,
@@ -193,11 +297,17 @@ function createGateway(
 }
 
 export function createModelGateway(options: ModelGatewayOptions = {}): ModelGateway {
-  return createGateway(
-    builtinModels({ authContext: authContext(options.readEnv) }),
-    providerIds,
-    options,
+  const registry = builtinModels({ authContext: authContext(options.readEnv) });
+  registry.setProvider(
+    createProvider({
+      id: compatibleProvider,
+      name: '自定义 OpenAI 格式',
+      models: [],
+      auth: { apiKey: envApiKeyAuth('OpenAI-compatible API key', ['OPENAI_COMPATIBLE_API_KEY']) },
+      api: openAICompletionsApi(),
+    }),
   );
+  return createGateway(registry, providerIds, options);
 }
 
 /** A separate SDK registry with no network providers, for deterministic tests. */
@@ -216,3 +326,4 @@ export function createFauxModelGateway(options: ModelGatewayOptions = {}) {
 }
 
 export { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai';
+export { containsCredential, ModelConfigError, ModelIdSchema } from './model-configuration.js';

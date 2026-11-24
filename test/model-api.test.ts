@@ -91,12 +91,18 @@ test('model API rejects invalid inputs and sanitizes route exceptions without lo
     `{"apiKey":"${key}", invalid-json`,
     JSON.stringify({ ...credentials, [key]: true }),
     JSON.stringify({ ...credentials, modelId: key }),
-    JSON.stringify({ ...credentials, apiKey: '  ' }),
   ]) {
     assert.deepEqual(await redacted(await app.request('/api/model', put(body)), 400), {
       error: 'invalid_model_config',
     });
   }
+  assert.deepEqual(
+    await redacted(
+      await app.request('/api/model', put(JSON.stringify({ ...credentials, apiKey: ' ' }))),
+      400,
+    ),
+    { error: 'model_key_required' },
+  );
   assert.equal((await redacted(await app.request('/api/model'))).mode, 'offline');
   assert.equal(
     (await redacted(await app.request('/api/model', put(JSON.stringify(credentials))))).source,
@@ -154,7 +160,7 @@ test('server disables native SDK logs for provider errors that echo credentials'
       }),
     );
     const modelId = gateway.getCatalog().find(({ id }) => id === provider)?.models[0]?.id;
-    assert.ok(gateway.setByok({ provider, modelId, apiKey: key }));
+    gateway.setByok({ provider, modelId, apiKey: key });
     await assert.rejects(gateway.generate({ prompt: 'Reply.', schema: Type.String() }), {
       name: 'ModelGenerationError',
       message: 'model_request_failed',
@@ -204,7 +210,7 @@ test('server HTTPS_PROXY transport reaches the model boundary and honors NO_PROX
       },
     );
     try {
-      assert.ok(gateway.setByok({ provider: 'faux', modelId: 'faux-1', apiKey: key }));
+      gateway.setByok({ provider: 'faux', modelId: 'faux-1', apiKey: key });
       assert.equal(
         (await gateway.generate({ prompt: 'Reply.', schema: Type.String(), timeoutMs: 5000 }))
           .value,
@@ -228,7 +234,7 @@ test('invalid HTTPS proxy permits offline startup and fails model calls without 
   });
   t.after(closeModelTransport);
   assert.equal((await gateway.getStatus()).mode, 'offline');
-  assert.ok(gateway.setByok({ provider: 'openai', modelId: 'gpt-5-mini', apiKey: key }));
+  gateway.setByok({ provider: 'openai', modelId: 'gpt-5-mini', apiKey: key });
   await assert.rejects(gateway.generate({ prompt: 'Reply.', schema: Type.String() }), (error) => {
     assert.ok(error instanceof ModelGenerationError);
     assert.equal(error.message, 'model_request_failed');

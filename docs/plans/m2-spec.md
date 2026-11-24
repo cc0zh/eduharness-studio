@@ -26,6 +26,7 @@
 
 - `models.ts` 对外提供统一结构化生成调用（带 TypeBox Schema 校验、超时控制、受控重试与 `durationMs` 采集）和当前运行态查询（`mode: 'offline' | 'live'`、已选 `provider` / `modelId`、来源 `env | byok | none`）。
 - 服务端新增轻量配置接口：`GET /api/model`（返回脱敏状态与可选供应商/模型目录）、`PUT /api/model`（写入内存态 BYOK 供应商、模型与 Key，不落盘）、`DELETE /api/model`（清空 BYOK 并回落 `.env` 或离线模式）。
+- M2-1b 支持 OpenRouter 和自定义 OpenAI 格式。`POST /api/model/fetch-models` 使用所选供应商及 Base URI 拉取 `/models`，同一供应商与地址可留空复用已有凭据。弹窗保留预设与手填模型 ID；自定义格式走 `pi-ai` 的 OpenAI Completions 实现。环境变量与使用步骤见[运行手册](../runbook.md#模型配置m2-1)。
 - 前端顶栏复用 `Dialog` 配置 BYOK；保存/清空立即反映在状态查询中。`live` 表示已配置，保存不发模型请求。M2-2、M2-3 再接入教学回合、建课和解锁；示范课仍离线。
 
 ### 2.2 自由主题建课、懒生成课节解锁与 `basis` 槽位

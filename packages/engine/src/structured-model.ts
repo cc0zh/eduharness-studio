@@ -15,6 +15,7 @@ export interface ModelGateway {
   getCatalog(): readonly ModelCatalogEntry[];
   setByok(credentials: unknown): boolean;
   clearByok(): void;
+  modelListConnection(input: unknown): Promise<{ baseUrl: string; apiKey: string }>;
   generate<S extends TSchema>(
     request: StructuredModelRequest<S>,
   ): Promise<{ value: Static<S>; durationMs: number }>;

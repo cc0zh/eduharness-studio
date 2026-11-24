@@ -44,9 +44,11 @@ npm run dev
 
 - 顶栏「模型与自带密钥」从 `/api/model` 读取状态和目录。临时 Key 仅保存在本地服务进程，刷新页面会读回状态（不读回 Key）；清空或重启服务回落环境配置，无 Key 则离线。
 - 服务启动读取仓库根 `.env`（可用 `STUDIO_ENV_FILE` 指向独立文件）；同名进程环境变量优先。使用供应商原生变量（如 `OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`DEEPSEEK_API_KEY`），可用 `STUDIO_MODEL_PROVIDER` / `STUDIO_MODEL_ID` 指定模型；未指定则用首个有凭据的目录项。模型调用可经 `HTTPS_PROXY`，支持 `NO_PROXY`。
-- 当前目录限 `pi-ai` 支持单 Key 且可注入代理传输的 OpenAI、Anthropic、DeepSeek、Moonshot AI、OpenRouter。保存配置时只更新模型设置。带模型配置新开或重开非示范课会调用 Teacher Agent；运行中模型不可用时保留已提交作答，并以离线方式将未完成要点标为未验证。真实试学前先取得费用授权。
-- 复验顶栏 BYOK：`node --test test/browser-m2-1.test.mjs`。设置 `STUDIO_MODEL_SCREENSHOTS` 可保存 Chromium 截图。
-- 复验教师回合使用 `node --test test/browser-m2-2.test.mjs`。该用例注入独立 faux 网关并使用临时 SQLite。设置 `STUDIO_TEACHER_SCREENSHOTS` 可保存 Chromium 截图。
+- 服务端通过 `pi-ai` 适配 OpenAI、Anthropic、DeepSeek、Moonshot AI、OpenRouter 与自定义 OpenAI-compatible；支持单 Key 和代理传输。使用 `STUDIO_MODEL_PROVIDER`、`STUDIO_MODEL_ID`、`STUDIO_MODEL_BASE_URL` 设置供应商、模型和 Base URI；自定义 OpenAI-compatible 使用 `OPENAI_COMPATIBLE_API_KEY`，并明确指定 Base URI 与模型 ID。
+- Base URI 填 API 根地址（如 `http://127.0.0.1:8080/v1`），必须为 HTTP(S)，不可包含凭据、查询参数或片段。生成与目录请求使用服务端 `HTTP_PROXY` / `HTTPS_PROXY` 和 `NO_PROXY`。
+- 顶栏「拉取模型」请求一次 `GET /models`；空密码框仅复用同供应商、同规范化 Base URI 的已有凭据，切换地址需输入该地址的 Key。拉取失败可改用预设或手填模型 ID，保存本身只更新配置。`live` 表示已配置，不代表模型请求已通过；真实模型调用前须获费用授权。
+- 带模型配置新开或重开非示范课会调用 Teacher Agent；运行中模型不可用时保留已提交作答，并以离线方式将未完成要点标为未验证。
+- `node --test test/browser-m2-1.test.mjs` 用 loopback 复验 BYOK 与模型目录；设置 `STUDIO_MODEL_LIST_SCREENSHOTS` 保存 M2-1b Chromium 截图。Teacher Agent 用例注入独立 faux 网关和临时 SQLite；设置 `STUDIO_TEACHER_SCREENSHOTS` 保存其截图。
 
 ## 常见排障
 

@@ -96,37 +96,61 @@ function processTree() {
     });
 }
 
-function descendants(processes, roots) {
-  const owned = new Set(roots);
+export function descendants(processes, roots) {
+  const owned = new Map(processes.filter(({ pid }) => roots.includes(pid)).map((p) => [p.pid, p]));
   for (let size = -1; size !== owned.size; ) {
     size = owned.size;
-    for (const { pid, parent } of processes) if (owned.has(parent)) owned.add(pid);
+    for (const entry of processes) {
+      const parent = owned.get(entry.parent);
+      // Windows retains the numeric parent PID after its original process exits.
+      if (parent && (!entry.born || BigInt(entry.born) >= BigInt(parent.born))) {
+        owned.set(entry.pid, entry);
+      }
+    }
   }
-  return processes.filter(({ pid }) => owned.has(pid));
+  return [...owned.values()];
 }
 
-function killTree(pid, signal) {
-  if (windows) {
-    spawnSync('taskkill.exe', ['/pid', String(pid), '/T', '/F'], {
-      stdio: 'ignore',
-      timeout: 8_000,
-      windowsHide: true,
-    });
-  } else {
-    try {
-      process.kill(-pid, signal);
-    } catch (error) {
-      if (error.code !== 'ESRCH') throw error;
+function terminateWindows(processes) {
+  if (!processes.length) return;
+  const identities = processes.map(({ pid, born }) => `${pid}='${born}'`).join(';');
+  // Check the creation time again at shutdown. A tree kill would follow stale parent PIDs.
+  const script = `
+    $owned = @{${identities}}
+    Get-CimInstance Win32_Process | ForEach-Object {
+      $id = [int]$_.ProcessId
+      if ($owned.ContainsKey($id) -and $_.CreationDate.ToUniversalTime().Ticks.ToString() -eq $owned[$id]) {
+        Invoke-CimMethod -InputObject $_ -MethodName Terminate -ErrorAction SilentlyContinue | Out-Null
+      }
     }
+  `;
+  const result = spawnSync(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-Command', script],
+    {
+      encoding: 'utf8',
+      timeout: 12_000,
+      windowsHide: true,
+    },
+  );
+  assert.equal(result.status, 0, result.stderr || String(result.error));
+}
+
+function stopProcess(child, signal) {
+  if (windows) return child.kill(signal);
+  try {
+    process.kill(-child.pid, signal);
+  } catch (error) {
+    if (error.code !== 'ESRCH') throw error;
   }
 }
 
 async function stopNode({ child, closed }) {
-  if (child.pid) killTree(child.pid, 'SIGTERM');
+  if (child.pid) stopProcess(child, 'SIGTERM');
   try {
     await bounded(closed, 'server shutdown', 3_000);
   } catch {
-    if (child.pid) killTree(child.pid, 'SIGKILL');
+    if (child.pid) stopProcess(child, 'SIGKILL');
     await bounded(closed, 'forced server shutdown');
   }
 }
@@ -191,9 +215,23 @@ export async function startBrowserFixture(t, { useNpmDev, serverEntry } = {}) {
       );
     }
     try {
-      owned = descendants(processTree(), roots);
+      const processes = processTree();
+      const directRoots = processes.filter(
+        ({ pid, parent }) => roots.includes(pid) && parent === process.pid,
+      );
+      owned = descendants(
+        processes,
+        directRoots.map(({ pid }) => pid),
+      );
     } finally {
       try {
+        if (windows)
+          terminateWindows(
+            descendants(
+              owned,
+              nodes.map(({ child }) => child.pid),
+            ),
+          );
         results = await Promise.allSettled([
           ...nodes.map(stopNode),
           chrome &&
@@ -201,10 +239,7 @@ export async function startBrowserFixture(t, { useNpmDev, serverEntry } = {}) {
               bounded(chrome.kill(), 'Chromium kill'),
             ),
         ]);
-        if (windows) {
-          // A failed wrapper may have exited before taskkill could traverse its tree.
-          for (const { pid } of stillOwned()) killTree(pid, 'SIGKILL');
-        }
+        if (windows) terminateWindows(stillOwned());
       } finally {
         rmSync(directory, { force: true, recursive: true, maxRetries: 8, retryDelay: 120 });
       }
