@@ -1,6 +1,16 @@
 export { type CourseSummary, generateBlueprint, type LessonEntry } from './blueprints.js';
 export { BAYES_DEMO_ID, demoCourses, TRANSFORMER_DEMO_ID } from './demo-courses.js';
 export {
+  COPPERPLATE_PALETTE,
+  COPPERPLATE_STYLE_PROMPT,
+  type GraphGenerationOptions,
+  type GraphGenerationResult,
+  type GraphGenerator,
+  type GraphGeneratorContext,
+  type GraphRequest,
+  generateGraph,
+} from './graph-generator.js';
+export {
   type Foundation,
   type FoundationStep,
   type GoalStep,
