@@ -42,12 +42,16 @@ export function shuffleAskOptions(options: Choice, seed: string): Choice {
 }
 
 const normalize = (text: string) => text.normalize('NFKC').trim().toLowerCase();
+const normalizeReply = (text: string) =>
+  normalize(text)
+    .replace(/[。.！!？?]+$/, '')
+    .trim();
+const explicitNonAnswer =
+  /^(?:(?:我)?(?:不知道|不清楚|不确定|拿不准|不会)(?:,\s*(?:请)?给(?:我)?(?:点|个)?提示)?|(?:请)?给(?:我)?(?:点|个)?提示|(?:i )?(?:do not know|don['’]t know)|(?:i am |i'm )?not sure)$/;
 
 export function effortSignal(input: TeacherInput): 'skip' | 'low' | undefined {
   if (input.kind === 'opening') return undefined;
-  const text = normalize(input.text)
-    .replace(/[。.！!？?]+$/, '')
-    .trim();
+  const text = normalizeReply(input.text);
   if (
     /^(?:请)?(?:跳过(?:这(?:题|步|个要点))?|不做(?:这题)?了|先跳过|skip(?: this)?|pass)$/.test(text)
   ) {
@@ -56,6 +60,28 @@ export function effortSignal(input: TeacherInput): 'skip' | 'low' | undefined {
   if (input.kind === 'answer' && input.option_id) return undefined;
   if (/^(?:1|继续(?:吧)?|直接讲(?:吧)?|嗯+|随便|continue|go on)$/.test(text)) return 'low';
   return undefined;
+}
+
+function answeredTeacherAsk({ input, state, played }: TeacherTurnContext) {
+  const last = played.at(-1);
+  return input.kind === 'answer' &&
+    state === 'handoff' &&
+    last?.type === 'ask' &&
+    last.step_id === input.ask_step_id
+    ? last
+    : undefined;
+}
+
+export function teacherAnswerEvidence(context: TeacherTurnContext) {
+  const ask = answeredTeacherAsk(context);
+  const effort = effortSignal(context.input);
+  const text = context.input.kind === 'answer' ? normalizeReply(context.input.text) : '';
+  return {
+    ask,
+    effort,
+    canAssessMastery:
+      ask?.checkpoint === 'verify' && !effort && !!text && !explicitNonAnswer.test(text),
+  };
 }
 
 export const teacherTextLimits = {
@@ -135,7 +161,11 @@ function actionProblems(context: TeacherTurnContext, output: TeacherTurnOutput):
       errors.push('highlight must target an acknowledged or earlier in-turn board card');
     }
     if (draft.type === 'board' || draft.type === 'ask') {
-      if (cards.has(draft.card_id)) errors.push('card_id is used or belongs to a truncated beat');
+      if (cards.has(draft.card_id)) {
+        errors.push(
+          `${draft.type}.card_id must be new and distinct from all board and ask cards, including cards from a truncated beat`,
+        );
+      }
       cards.add(draft.card_id);
       if (draft.type === 'board') board.add(draft.card_id);
     }
@@ -167,14 +197,7 @@ export function guardTeacherTurn(context: TeacherTurnContext, output: TeacherTur
   const outcome = outcomes[0];
   const verification = drafts.findIndex((a) => a.type === 'speak' && a.checkpoint === 'verify');
   const lastPlayed = played.at(-1);
-  const answeredAsk =
-    input.kind === 'answer' &&
-    context.state === 'handoff' &&
-    lastPlayed?.type === 'ask' &&
-    lastPlayed.step_id === input.ask_step_id
-      ? lastPlayed
-      : undefined;
-  const signal = effortSignal(input);
+  const { ask: answeredAsk, effort: signal, canAssessMastery } = teacherAnswerEvidence(context);
   const lowEffort = diagnosis.status === 'low_effort';
   const skip = signal === 'skip' || (lowEffort && progress.lowEffortStreak > 0);
 
@@ -183,7 +206,7 @@ export function guardTeacherTurn(context: TeacherTurnContext, output: TeacherTur
     reasons.push('opening diagnosis is only for the first turn');
   if (input.kind === 'answer' && !answeredAsk)
     reasons.push('answer must match the acknowledged, pending ask');
-  if (diagnosis.status === 'mastered' && (answeredAsk?.checkpoint !== 'verify' || signal)) {
+  if (diagnosis.status === 'mastered' && !canAssessMastery) {
     reasons.push('mastery requires a substantive answer to the acknowledged verify ask');
   }
   if (signal && !lowEffort)
@@ -192,6 +215,7 @@ export function guardTeacherTurn(context: TeacherTurnContext, output: TeacherTur
     reasons.push('diagnosis needs a nonblank summary and strategy');
   if (inserted) {
     if (
+      opening ||
       diagnosis.status !== 'missing_prereq' ||
       !current ||
       progress.insertedCount >= 2 ||
@@ -201,7 +225,9 @@ export function guardTeacherTurn(context: TeacherTurnContext, output: TeacherTur
       !inserted.objective.trim()
     ) {
       reasons.push(
-        'insert_keypoint must be a new prerequisite before the active point, with at most two insertions and six total points',
+        opening
+          ? 'omit insert_keypoint on the opening turn'
+          : 'insert_keypoint must be a new prerequisite before the active point, with at most two insertions and six total points',
       );
     } else {
       keypoints[currentIndex] = { ...current, status: 'pending' };
@@ -214,8 +240,7 @@ export function guardTeacherTurn(context: TeacherTurnContext, output: TeacherTur
   if (outcome?.type === 'keypoint_complete') {
     if (
       diagnosis.status !== 'mastered' ||
-      answeredAsk?.checkpoint !== 'verify' ||
-      opening ||
+      !canAssessMastery ||
       verification < 0 ||
       drafts[verification + 1] !== outcome
     ) {

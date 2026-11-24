@@ -1,4 +1,4 @@
-import { type Static, type TObject, type TProperties, Type } from '@sinclair/typebox';
+import { type Static, type TObject, type TProperties, type TSchema, Type } from '@sinclair/typebox';
 import {
   BoardActionSchema,
   ChoiceAskActionSchema,
@@ -43,26 +43,33 @@ const InsertKeypointSchema = Type.Object(
   strict,
 );
 
-export const TeacherTurnOutputSchema = Type.Object(
-  {
-    diagnosis: DiagnosisSchema,
-    insert_keypoint: Type.Optional(InsertKeypointSchema),
-    actions: Type.Array(
-      Type.Union([
-        draft(BoardActionSchema),
-        draft(NewColumnActionSchema),
-        draft(NewPageActionSchema),
-        draft(HighlightActionSchema),
-        draft(SpeakActionSchema),
-        draft(OpenAskActionSchema),
-        draft(ChoiceAskActionSchema),
-        draft(KeypointCompleteActionSchema),
-        draft(KeypointUnverifiedActionSchema),
-      ]),
-      { minItems: 4, maxItems: 8 },
-    ),
-  },
-  strict,
+const commonDrafts = [
+  draft(BoardActionSchema),
+  draft(NewColumnActionSchema),
+  draft(NewPageActionSchema),
+  draft(HighlightActionSchema),
+  draft(OpenAskActionSchema),
+  draft(ChoiceAskActionSchema),
+  draft(KeypointUnverifiedActionSchema),
+] as const;
+
+function turnSchema<T extends TSchema>(action: T) {
+  return Type.Object(
+    {
+      diagnosis: DiagnosisSchema,
+      insert_keypoint: Type.Optional(InsertKeypointSchema),
+      actions: Type.Array(action, { minItems: 4, maxItems: 8 }),
+    },
+    strict,
+  );
+}
+
+export const TeacherTurnWithoutMasterySchema = turnSchema(
+  Type.Union([...commonDrafts, Type.Omit(SpeakActionSchema, ['step_id', 'checkpoint'], strict)]),
+);
+
+export const TeacherTurnOutputSchema = turnSchema(
+  Type.Union([...commonDrafts, draft(SpeakActionSchema), draft(KeypointCompleteActionSchema)]),
 );
 
 export type TeacherTurnOutput = Static<typeof TeacherTurnOutputSchema>;

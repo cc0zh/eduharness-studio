@@ -2,9 +2,17 @@ import type { PublicDialogueTurn } from './projection.js';
 import type { LessonTraceSpan } from './session-protocol.js';
 import type { StructuredModelTool } from './structured-model.js';
 import { type ModelGateway, ModelGenerationError } from './structured-model.js';
-import { guardTeacherTurn, type TeacherTurnContext } from './teacher-guardrails.js';
+import {
+  guardTeacherTurn,
+  type TeacherTurnContext,
+  teacherAnswerEvidence,
+} from './teacher-guardrails.js';
 import { teacherPrompt } from './teacher-prompt.js';
-import { TeacherTurnOutputSchema, type TeacherTurnTrace } from './teacher-protocol.js';
+import {
+  TeacherTurnOutputSchema,
+  type TeacherTurnTrace,
+  TeacherTurnWithoutMasterySchema,
+} from './teacher-protocol.js';
 import { calcVerifyTeacherTool, runTeacherTool, type TeacherTool } from './teacher-tools.js';
 
 export type { TeacherInput, TeacherProgress, TeacherTurnContext } from './teacher-guardrails.js';
@@ -32,12 +40,12 @@ export function createTeacherPlanner(
     const observations: { tool: string; result: string }[] = [];
     let toolCallsUsed = 0;
     let reasons: string[] = [];
+    const { effort, canAssessMastery } = teacherAnswerEvidence(context);
+    const schema = canAssessMastery ? TeacherTurnOutputSchema : TeacherTurnWithoutMasterySchema;
+    const toolLimit = !effort && tools.length ? maxToolSteps : 0;
 
     for (let attempt = 1; attempt <= maxCorrections + 1; attempt++) {
-      const toolBudget = Math.max(
-        0,
-        Math.min(maxToolSteps - toolCallsUsed, tools.length ? maxToolSteps : 0),
-      );
+      const toolBudget = Math.max(0, toolLimit - toolCallsUsed);
       const prompt = teacherPrompt(context, dialogue, tools, reasons, observations, toolBudget);
       const modelTools: StructuredModelTool[] = toolBudget
         ? tools.map((tool) => ({
@@ -57,7 +65,7 @@ export function createTeacherPlanner(
         : [];
       try {
         const { value, durationMs } = await gateway.generate({
-          schema: TeacherTurnOutputSchema,
+          schema,
           prompt,
           maxTokens: 4096,
           attempts: 1,
@@ -94,6 +102,11 @@ export function createTeacherPlanner(
         reasons = [
           'emit one structured result with diagnosis and 4–8 unnumbered actions of the declared schema',
         ];
+        if (!canAssessMastery) {
+          reasons.push(
+            'omit keypoint_complete and speak.checkpoint until a verify ask is substantively answered',
+          );
+        }
       }
       guardrails.push({ attempt, reasons });
     }

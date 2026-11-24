@@ -13,7 +13,7 @@ import {
 import { createTeacherPlanner } from '@eduharness-studio/engine/teacher';
 import { openStudioDatabase } from '../apps/server/src/db.js';
 import { createSessionStore } from '../apps/server/src/session-store.js';
-import { makeFixture, opening, startAtAsk } from './teacher-test-support.js';
+import { makeFixture, opening, scaffold, startAtAsk } from './teacher-test-support.js';
 
 test('a duplicate-answer receipt never mixes an old session with a newer SQLite answer', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'eduharness-teacher-receipt-'));
@@ -162,4 +162,79 @@ test('a rejected first opening returns guardrail diagnostics without inserting a
   );
   assert.equal(trace.outcome, 'rejected');
   assert.equal(fixture.database.db.prepare('SELECT COUNT(*) AS n FROM sessions').get()?.n, 0);
+});
+
+test('opening retries preserve separate board and ask IDs and omit premature prerequisite insertion', async (t) => {
+  const fixture = makeFixture(t);
+  const invalid = {
+    ...opening,
+    insert_keypoint: {
+      id: 'premature',
+      title: '先备概念',
+      objective: '理解如何分组',
+      depth: 'intuition',
+    },
+    actions: [...opening.actions.slice(0, -1), { ...opening.actions.at(-1), card_id: 'open' }],
+  };
+  fixture.faux.setResponses([fixture.structured(invalid), fixture.structured(opening)]);
+  const live = await startAtAsk(fixture.store, () => fixture.store.start(fixture.options(false)));
+  const inspection = fixture.store.inspect(live.id);
+  assert.ok(inspection);
+  assert.equal(live.ask.card_id, 'open-ask');
+  assert.ok(
+    inspection.snapshot.playedActions.some(
+      (action) => action.type === 'highlight' && action.card_id === 'open',
+    ),
+  );
+  assert.ok(!inspection.snapshot.keypoints?.some(({ id }) => id === 'premature'));
+  const [turn] = inspection.trace.teacherTurns;
+  assert.equal(turn.outcome, 'accepted');
+  assert.deepEqual(turn.guardrails, [
+    {
+      attempt: 1,
+      reasons: [
+        'actions[3]: ask.card_id must be new and distinct from all board and ask cards, including cards from a truncated beat',
+        'omit insert_keypoint on the opening turn',
+      ],
+    },
+  ]);
+});
+
+test('first bare answer requests a two-choice scaffold without offering calculation or advancement', async (t) => {
+  const fixture = makeFixture(t);
+  fixture.faux.setResponses([fixture.structured(opening)]);
+  const live = await startAtAsk(fixture.store, () => fixture.store.start(fixture.options(false)));
+  let prompt = '';
+  let offeredTools: string[] | undefined;
+  fixture.faux.setResponses([
+    ({ messages }) => {
+      const user = messages.find(({ role }) => role === 'user');
+      prompt =
+        typeof user?.content === 'string'
+          ? user.content
+          : (user?.content ?? [])
+              .flatMap((part) => (part.type === 'text' ? [part.text] : []))
+              .join('\n');
+      offeredTools = messages.flatMap((message) =>
+        message.role === 'system' ? (message.toolsAdded ?? []).map(({ name }) => name) : [],
+      );
+      return fixture.structured(scaffold);
+    },
+  ]);
+  const receipt = await fixture.store.answer(live.id, {
+    generation: live.generation,
+    ask_step_id: live.ask.step_id,
+    text: '1',
+  });
+  assert.ok('ok' in receipt, JSON.stringify(receipt));
+  assert.match(prompt, /本轮是首次敷衍，不是跳过/);
+  assert.match(prompt, /恰好两个简短、互斥的判断选项/);
+  assert.doesNotMatch(prompt, /用 keypoint_unverified 标明/);
+  assert.deepEqual(offeredTools, ['emit_result']);
+  const second = await startAtAsk(fixture.store, () => fixture.store.start(fixture.options(false)));
+  assert.equal(second.ask.mode, 'choice');
+  assert.equal(second.ask.mode === 'choice' && second.ask.options?.length, 2);
+  assert.equal(second.ask.checkpoint, undefined);
+  assert.equal(fixture.store.inspect(live.id)?.snapshot.keypoints?.[0].status, 'active');
+  assert.equal(fixture.faux.state.callCount, 2);
 });

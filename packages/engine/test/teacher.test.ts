@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Type } from '@sinclair/typebox';
+import { KindGuard, Type } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 import { projectKeypointProgress } from '../src/lesson-playback.js';
 import { createFauxModelGateway, fauxAssistantMessage, fauxToolCall } from '../src/models.js';
@@ -129,6 +129,17 @@ test('opening protects handoff, layout and acknowledged board references', () =>
 
 test('mastery needs a played transfer ask, current answer, spoken check and active keypoint', () => {
   assert.ok(guardTeacherTurn(answered, output('mastered', completion)).ok);
+  for (const text of ['我不知道。', '我拿不准，给点提示。', "I don't know."]) {
+    const unsure = { ...answered, input: { kind: 'answer' as const, ask_step_id: 10, text } };
+    rejection(guardTeacherTurn(unsure, output('mastered', completion)), /substantive answer/);
+    assert.ok(guardTeacherTurn(unsure, output('clarifying')).ok);
+  }
+  assert.ok(
+    guardTeacherTurn(
+      { ...answered, input: { kind: 'answer', ask_step_id: 10, text: '3' } },
+      output('mastered', completion),
+    ).ok,
+  );
   rejection(guardTeacherTurn(answered, output('misconception', completion)), /requires mastered/);
   rejection(
     guardTeacherTurn(
@@ -356,7 +367,7 @@ test('faux planner caps tools, redacts their spans and supplies concrete correct
     fauxResult(output('mastered', completion)),
     (request) => {
       const prompt = JSON.stringify(request.messages);
-      assert.match(prompt, /keypoint_complete requires mastered/);
+      assert.match(prompt, /omit keypoint_complete and speak\.checkpoint/);
       assert.match(prompt, /mock_sum/);
       return fauxResult(output('opening'));
     },
@@ -377,4 +388,73 @@ test('faux planner caps tools, redacts their spans and supplies concrete correct
     [1, 2, 3],
   );
   assert.equal(rejected.spans.filter(({ kind }) => kind === 'tool').length, 2);
+});
+
+test('provider cannot emit mastery actions before an acknowledged transfer answer', async () => {
+  const { gateway, setResponses } = createFauxModelGateway();
+  gateway.setByok({ provider: 'faux', modelId: 'faux-1', apiKey: 'faux-only' });
+  const ordinaryAsk = { ...transferAsk, checkpoint: undefined };
+  const target = output('clarifying', [
+    ...drafts.slice(0, 3),
+    {
+      type: 'ask',
+      mode: 'open',
+      card_id: 'q-verify',
+      prompt: '九块可以分几对？',
+      checkpoint: 'verify',
+    },
+  ]);
+  const premature = output('mastered', completion);
+  let prematureAdvertised: boolean | undefined;
+  setResponses([
+    ({ messages }) => {
+      const declaration = messages
+        .flatMap((message) => (message.role === 'system' ? (message.toolsAdded ?? []) : []))
+        .find(({ name }) => name === 'emit_result');
+      assert.ok(declaration && KindGuard.IsSchema(declaration.parameters));
+      prematureAdvertised = Value.Check(declaration.parameters, { value: premature });
+      return fauxResult(premature);
+    },
+    fauxResult(target),
+    fauxResult(premature),
+  ]);
+  const plan = createTeacherPlanner(gateway);
+  const scaffold = await plan({ ...answered, played: [ordinaryAsk] }, []);
+  assert.equal(prematureAdvertised, false);
+  assert.ok(scaffold.ok);
+  assert.equal(scaffold.trace.guardrails.length, 1);
+  assert.equal(
+    scaffold.actions.some(({ type }) => type === 'keypoint_complete'),
+    false,
+  );
+  const verify = scaffold.actions.at(-1);
+  assert.ok(verify?.type === 'ask' && verify.checkpoint === 'verify');
+  const mastered = await plan(
+    {
+      ...answered,
+      played: [ordinaryAsk, ...scaffold.actions],
+      input: { kind: 'answer', ask_step_id: verify.step_id, text: '四对，剩一块。' },
+      progress: scaffold.progress,
+    },
+    [],
+  );
+  assert.ok(mastered.ok);
+  assert.equal(mastered.actions[0].type, 'speak');
+  assert.equal(mastered.actions[1].type, 'keypoint_complete');
+
+  setResponses([fauxResult(premature), fauxResult(output('clarifying'))]);
+  const unsure = await plan(
+    {
+      ...answered,
+      input: { kind: 'answer', ask_step_id: 10, text: '不知道。' },
+    },
+    [],
+  );
+  assert.ok(unsure.ok);
+  assert.equal(unsure.trace.guardrails.length, 1);
+  assert.match(unsure.trace.guardrails[0].reasons.join('\n'), /omit keypoint_complete/);
+  assert.equal(
+    unsure.actions.some(({ type }) => type === 'keypoint_complete'),
+    false,
+  );
 });
