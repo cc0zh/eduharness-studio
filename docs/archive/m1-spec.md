@@ -1,6 +1,6 @@
 # M1 详细规格书：零密钥离线端到端闭环
 
-> 状态：活动规格书（M1 施工唯一依据；M1 合入 `main` 后移入 `docs/archive/`）。总览见 [路线图](roadmap.md) 与 [验收场景](../scenarios.md)。
+> M1 阶段规格已归档。查看 [路线图](../plans/roadmap.md) · [验收场景](../scenarios.md) · [交付证据](../status.md#m1-验收证据)。
 
 ## 1. 产品体验与反面红线
 

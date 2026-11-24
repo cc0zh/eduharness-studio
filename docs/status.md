@@ -1,16 +1,22 @@
 # 当前状态
 
-- **当前里程碑**：M0（骨架与门禁）已完成并验证通过，准备进入 M1（零密钥离线端到端闭环）。
-- **最后更新**：2026-11-23
+- **当前里程碑**　M1 已完成，交付零密钥离线课堂与真实浏览器验收。
+- **最后更新**　2026-11-24
 
-## 已完成（M0）
+## M1 验收证据
 
-- 轻量三层 npm workspaces 仓库：`packages/engine`、`apps/server`、`apps/web`。
-- 纯引擎层最小硬契约：两层动态课程蓝图 Schema、8 类白板动作 TypeBox Schema、教学状态机与打断截断逻辑、白板→公开对话投影与对应单测。
-- 后端 `apps/server`：Hono + `node:sqlite` 建表探活与 `/api/health`、`/api/meta`。
-- 前端 `apps/web`：React 19 + Vite + Tailwind v4 点阵白板最小页，外围交互壳接入 7 个 coss ui 原语（`@base-ui/react`：`Button` / `Badge` / `Input` / `Switch` / `Tabs` / `Sheet` / `Dialog`），配 `@/*` 路径别名并经 Vite proxy 连通本地后端。
-- 自动化门禁：秒级 `npm run check:static`（三层导入边界 + 文档防堆放 Lint + 代码卫生/防膨胀/根目录白名单 + Biome + 全仓 `tsc --noEmit`）挂载 `.githooks/pre-commit`（`prepare` 自动启用）；全量 `npm run check` 叠加前端构建、引擎/门禁/M0 E2E 冒烟测试及 `.github/workflows/ci.yml`。
+五个切片的 `npm run check` 均退出 0，运行前后工作区均干净。下表的收据与截图路径相对于本机证据目录 `C:\tmp\eduharness-studio\`。
 
-## 下一步（M1）
+| 切片  | 验收内容                                              | 提交      | 检查收据                  | 截图目录 |
+| ----- | ----------------------------------------------------- | --------- | ------------------------- | -------- |
+| M1-1  | 示范课直达、轻调研与课程蓝图                          | `e015fa9` | `m1-1/check-receipt.txt`  | `m1-1/`  |
+| M1-2  | 白板逐拍演播、暂停与作答                              | `f67be87` | `m1-2/check-receipt.txt`  | `m1-2/`  |
+| M1-2b | 贝叶斯与 Transformer 示范课、翻页、KaTeX 与 SVG       | `251d6e4` | `m1-2b/check-receipt.txt` | `m1-2b/` |
+| M1-3  | 课堂记录、打断续讲、刷新与服务重启后恢复              | `8db18ea` | `m1-3/check-receipt.txt`  | `m1-3/`  |
+| M1-4  | X-Ray 19 题离线规则质检、跨页证据高亮、Playwright E2E | `acd5d0f` | `m1-4/check-receipt.txt`  | `m1-4/`  |
 
-- 落地零密钥离线端到端闭环：进门示范课 + 轻调研生成动态两层蓝图、白板按拍 SSE 演播、左侧可折叠记录栏、打断持久化与刷新恢复、`Agent X-Ray` 离线 6 维质检及 `#n` 联动高亮，并接入真实浏览器 E2E 测试。
+M1-4 全量检查 48 项通过。阶段独立复核通过，10 张 M1-4 截图已人工复看。X-Ray「对话与追踪」保留纯文本 LaTeX，供 M3 裁判读取公开对话。
+
+## 下一步（M2）
+
+接入真实模型与受控计算工具，跑通自由主题建课。真实模型冒烟须先获预算授权。[M2 范围](plans/roadmap.md#m2下一步真实模型与自由主题建课)
