@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { useRead } from '@/lib/courses';
 import { cn } from '@/lib/utils';
 import { BoardStage } from './BoardStage';
-import { LessonAskCard } from './LessonAskCard';
+import { EditorialSkeleton } from './EditorialSkeleton';
 import { LessonProgress } from './LessonProgress';
 import {
   type EvidenceTarget,
@@ -44,22 +44,16 @@ export function LessonWhiteboard(props: LessonProps) {
     return (
       <div className="mx-auto max-w-4xl px-5 py-12">
         {keypointError ? (
-          <div className="rounded-2xl border border-border bg-white p-6 shadow-sm">
-            <p role="alert" className="text-sm text-amber-800">
+          <div className="space-y-3 border-l-2 border-accent pl-4">
+            <p role="alert" className="text-sm text-accent">
               {keypointError}
             </p>
-            <button
-              type="button"
-              onClick={retry}
-              className="mt-3 rounded-lg border px-3 py-2 text-sm font-semibold text-primary"
-            >
+            <Button variant="outline" size="sm" onClick={retry}>
               重新加载
-            </button>
+            </Button>
           </div>
         ) : (
-          <p role="status" className="text-sm text-muted">
-            正在准备本课要点…
-          </p>
+          <EditorialSkeleton label="正在准备本课要点与讲义…" rows={3} />
         )}
       </div>
     );
@@ -81,13 +75,39 @@ function PlayingLesson({
   useEffect(() => {
     if (!xrayOpen) setSelection(undefined);
   }, [xrayOpen]);
+
+  // 键盘快捷键：Space 暂停/继续，→ 单拍前进（输入框内自动忽略）
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        active instanceof HTMLSelectElement ||
+        (active instanceof HTMLElement && active.isContentEditable)
+      ) {
+        return;
+      }
+      if (event.code === 'Space' && playback.canToggle) {
+        event.preventDefault();
+        playback.togglePaused();
+      } else if (event.code === 'ArrowRight' && playback.canStep) {
+        event.preventDefault();
+        playback.stepForward();
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [playback]);
+
   const target = xrayOpen && selection?.sessionId === sessionId ? selection?.target : undefined;
   const pages = projectBoard(playback.played);
   const dialogue = xrayOpen ? projectPlayedDialogue(playback.played, playback.records) : undefined;
   function select(number: number, source: PlayedDialogue, preferredStep?: number) {
     if (!sessionId) return;
-    const target = locateEvidence(source, number, playback.played, pages, preferredStep);
-    if (target) setSelection({ sessionId, target });
+    const found = locateEvidence(source, number, playback.played, pages, preferredStep);
+    if (found) setSelection({ sessionId, target: found });
   }
   const evidence: EvidenceView | undefined = dialogue
     ? {
@@ -97,19 +117,10 @@ function PlayingLesson({
       }
     : undefined;
   const progress = projectKeypointProgress(keypoints, playback.played);
-  const ask = playback.played.find(
+  const askAction = playback.played.find(
     ({ type, step_id }) => type === 'ask' && step_id === playback.askStep,
   );
-  const askCard =
-    ask?.type === 'ask' ? (
-      <LessonAskCard
-        ask={ask}
-        text={playback.answerText}
-        canAnswer={playback.canAnswer}
-        setText={playback.setAnswerText}
-        submit={playback.submitAnswer}
-      />
-    ) : null;
+  const ask = askAction?.type === 'ask' ? askAction : undefined;
   const lastAction = playback.played.at(-1);
   const caption = target?.caption ?? latestCaption(playback.played);
   const activeCaptionNumber = caption ? evidence?.numbersByStep.get(caption.step_id) : undefined;
@@ -117,8 +128,10 @@ function PlayingLesson({
   return (
     <div
       className={cn(
-        xrayOpen &&
-          'flex h-[calc(100dvh-4rem-var(--lesson-xray-short-height))] min-w-0 flex-col lg:mr-[var(--lesson-xray-width)] lg:h-[calc(100dvh-4rem)]',
+        'flex min-w-0 flex-col overflow-hidden',
+        xrayOpen
+          ? 'h-[calc(100dvh-3.5rem-var(--lesson-xray-short-height))] lg:mr-[var(--lesson-xray-width)] lg:h-[calc(100dvh-3.5rem)]'
+          : 'h-[calc(100dvh-3.5rem)]',
       )}
       data-session-id={sessionId}
       data-generation={playback.generation}
@@ -126,30 +139,22 @@ function PlayingLesson({
       data-played-action={lastAction?.type ?? 'waiting'}
     >
       <div
-        className={cn(xrayOpen && 'min-h-0 flex-1 overflow-y-auto overscroll-contain')}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
         data-lesson-stage
       >
-        <div
-          className={cn('mx-auto max-w-7xl px-4 pt-5 sm:px-7 sm:pt-7', xrayOpen ? 'pb-5' : 'pb-52')}
-        >
-          <section
-            aria-labelledby="lesson-title"
-            className="rounded-3xl border border-primary/10 bg-white/85 px-4 py-4 shadow-sm sm:px-6"
-          >
-            <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="mx-auto max-w-[84rem] px-4 pt-3.5 pb-6 sm:px-7 sm:pt-4">
+          <section aria-labelledby="lesson-title" className="border-b border-border pb-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
               <div className="min-w-0">
-                <p className="text-xs font-semibold tracking-wide text-primary">
-                  Eduharness课堂 · 一对一白板课
-                </p>
                 <h1
                   id="lesson-title"
-                  className="mt-1 text-xl font-bold tracking-tight text-ink sm:text-2xl [overflow-wrap:anywhere]"
+                  className="font-serif text-lg font-semibold tracking-tight text-ink sm:text-[21px] [overflow-wrap:anywhere]"
                 >
                   {title}
                 </h1>
-                <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted">{summary}</p>
+                <p className="mt-0.5 max-w-3xl text-xs leading-relaxed text-muted">{summary}</p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <RecordSheet
                   key={sessionId}
                   records={playback.records}
@@ -158,21 +163,21 @@ function PlayingLesson({
                 />
                 <Button
                   variant="ghost"
+                  size="sm"
                   disabled={!playback.canRestart}
                   onClick={() => void playback.restart()}
                 >
-                  <RotateCcw aria-hidden="true" />
+                  <RotateCcw className="size-3.5" aria-hidden="true" />
                   重新开始本课
                 </Button>
               </div>
             </div>
-            <div className="mt-4">
+            <div className="mt-2.5">
               <LessonProgress keypoints={progress.keypoints} currentIndex={progress.currentIndex} />
             </div>
           </section>
 
-          <div className="mt-5">
-            {xrayOpen && askCard && <div className="mb-4">{askCard}</div>}
+          <div className="mt-3.5">
             {sessionId ? (
               <SessionBoard
                 key={sessionId}
@@ -183,41 +188,31 @@ function PlayingLesson({
                 clearSelection={() => setSelection(undefined)}
               />
             ) : !playback.end ? (
-              <p role="status" className="px-3 text-sm text-muted">
-                正在恢复本课白板…
-              </p>
+              <EditorialSkeleton label="正在恢复本课白板…" rows={3} />
             ) : null}
           </div>
         </div>
       </div>
 
-      <div
-        className={cn(
-          'pointer-events-none mx-auto flex max-w-6xl flex-col gap-2',
-          xrayOpen
-            ? 'z-30 w-full shrink-0 px-3 pb-3 sm:px-6'
-            : 'fixed inset-x-3 bottom-3 z-30 sm:inset-x-6',
-        )}
-      >
-        {!xrayOpen && askCard}
-        <PlaybackControls
-          key={sessionId}
-          playback={playback}
-          caption={caption?.text ?? '老师正在整理白板…'}
-          captionEvidence={
-            evidence && {
-              number: activeCaptionNumber,
-              selected: Boolean(target?.caption),
-              contextual: target?.number !== activeCaptionNumber,
-              select: (number) => evidence.select(number, caption?.step_id),
-              clear: () => setSelection(undefined),
-            }
+      <PlaybackControls
+        key={`playback-${sessionId}`}
+        playback={playback}
+        caption={caption?.text ?? '老师正在整理白板…'}
+        ask={ask}
+        captionEvidence={
+          evidence && {
+            number: activeCaptionNumber,
+            selected: Boolean(target?.caption),
+            contextual: target?.number !== activeCaptionNumber,
+            select: (number) => evidence.select(number, caption?.step_id),
+            clear: () => setSelection(undefined),
           }
-        />
-      </div>
+        }
+      />
+
       {dialogue && (
         <XRayDrawer
-          key={sessionId}
+          key={`xray-${sessionId}`}
           playback={playback}
           dialogue={dialogue}
           onEvidence={select}

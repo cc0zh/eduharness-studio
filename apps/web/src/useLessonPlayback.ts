@@ -7,6 +7,7 @@ import type {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { errorMessage, request } from '@/lib/courses';
+import { beatAutoplayDelayMs } from './lesson-playback';
 import { addRecord, playbackOwner } from './lesson-playback-state';
 import { restartLesson, resumeLesson, sessionPath } from './lesson-session';
 import { subscribeLesson } from './lesson-stream';
@@ -172,40 +173,40 @@ export function useLessonPlayback(lessonPath: string) {
       return;
     if (paused && !stepRequested) return;
     const key = playbackOwner(sessionId, nextBeat.generation);
-    const timer = window.setTimeout(
-      () => {
-        if (
-          owner.current !== key ||
-          mutation.current ||
-          !visible ||
-          document.visibilityState !== 'visible' ||
-          nextBeat.action.step_id <= displayed.current
-        )
-          return;
-        const action = nextBeat.action;
-        // Finish the DOM commit before either progress or an interrupt can observe this step.
-        flushSync(() => {
-          setNextBeat((queued) => (queued === nextBeat ? undefined : queued));
-          setStepRequested(false);
-          setWriting(true);
-          setSession(
-            (snapshot) =>
-              snapshot && {
-                ...snapshot,
-                last_played_step_id: action.step_id,
-                playedActions: [...snapshot.playedActions, action],
-                askStep: action.type === 'ask' ? action.step_id : snapshot.askStep,
-              },
-          );
-        });
-        displayed.current = action.step_id;
-        saveProgress(sessionId, nextBeat);
-      },
-      paused ? 0 : 900,
-    );
+    const delayMs =
+      paused || stepRequested ? 0 : beatAutoplayDelayMs(session?.playedActions.at(-1));
+    const timer = window.setTimeout(() => {
+      if (
+        owner.current !== key ||
+        mutation.current ||
+        !visible ||
+        document.visibilityState !== 'visible' ||
+        nextBeat.action.step_id <= displayed.current
+      )
+        return;
+      const action = nextBeat.action;
+      // Finish the DOM commit before either progress or an interrupt can observe this step.
+      flushSync(() => {
+        setNextBeat((queued) => (queued === nextBeat ? undefined : queued));
+        setStepRequested(false);
+        setWriting(true);
+        setSession(
+          (snapshot) =>
+            snapshot && {
+              ...snapshot,
+              last_played_step_id: action.step_id,
+              playedActions: [...snapshot.playedActions, action],
+              askStep: action.type === 'ask' ? action.step_id : snapshot.askStep,
+            },
+        );
+      });
+      displayed.current = action.step_id;
+      saveProgress(sessionId, nextBeat);
+    }, delayMs);
     return () => window.clearTimeout(timer);
   }, [
     sessionId,
+    session?.playedActions,
     ready,
     nextBeat,
     writing,
@@ -220,7 +221,7 @@ export function useLessonPlayback(lessonPath: string) {
   ]);
 
   const canToggle = Boolean(ready && !busy && !end && !failedWrite && askStep === null);
-  const canStep = canToggle && paused && !writing && !stepRequested;
+  const canStep = canToggle && !writing && !stepRequested;
   const canAnswer = Boolean(
     ready && askStep !== null && !end && !writing && !failedWrite && !busy && answerText.trim(),
   );

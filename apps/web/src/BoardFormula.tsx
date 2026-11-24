@@ -17,7 +17,7 @@ export function BoardFormula({ formula }: { formula: string }) {
   return (
     <div
       ref={container}
-      className="mt-3 overflow-x-auto rounded-xl border border-primary/10 bg-primary-soft/25 px-3 text-center text-sm text-primary"
+      className="mt-3.5 overflow-x-auto border-y border-border px-2 py-2 text-center text-sm text-ink"
     />
   );
 }

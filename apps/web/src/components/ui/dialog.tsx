@@ -15,10 +15,10 @@ export function DialogPopup({
 }: DialogPrimitive.Popup.Props & { showCloseButton?: boolean }) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-[#0f172a]/25 backdrop-blur-[1px] transition-opacity data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
+      <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-ink/30 backdrop-blur-[1px] transition-opacity data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
       <DialogPrimitive.Popup
         className={cn(
-          'fixed top-1/2 left-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-white p-6 shadow-lg transition-all outline-none data-[starting-style]:scale-95 data-[starting-style]:opacity-0 data-[ending-style]:scale-95 data-[ending-style]:opacity-0',
+          'fixed top-1/2 left-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-md border border-ink bg-surface p-6 transition-all outline-none data-[starting-style]:scale-95 data-[starting-style]:opacity-0 data-[ending-style]:scale-95 data-[ending-style]:opacity-0',
           className,
         )}
         {...props}
@@ -27,7 +27,7 @@ export function DialogPopup({
         {showCloseButton && (
           <DialogPrimitive.Close
             aria-label="关闭弹窗"
-            className="absolute top-4 right-4 inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted hover:bg-[#f1f5f9] hover:text-ink"
+            className="absolute top-4 right-4 inline-flex size-7 cursor-pointer items-center justify-center rounded-sm text-muted hover:bg-surface-hover hover:text-ink"
           >
             <X className="size-4" />
           </DialogPrimitive.Close>
@@ -38,13 +38,18 @@ export function DialogPopup({
 }
 
 export function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn('flex flex-col gap-1.5 pr-6', className)} {...props} />;
+  return (
+    <div
+      className={cn('flex flex-col gap-1.5 border-b border-border pb-3 pr-6', className)}
+      {...props}
+    />
+  );
 }
 
 export function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   return (
     <DialogPrimitive.Title
-      className={cn('text-base font-semibold text-ink', className)}
+      className={cn('font-serif text-base font-semibold text-ink', className)}
       {...props}
     />
   );

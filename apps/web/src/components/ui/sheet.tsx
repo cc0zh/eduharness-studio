@@ -22,14 +22,14 @@ export function SheetPopup({
   return (
     <DialogPrimitive.Portal>
       {showBackdrop && (
-        <DialogPrimitive.Backdrop className="fixed inset-0 z-40 bg-[#0f172a]/20 transition-opacity data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
+        <DialogPrimitive.Backdrop className="fixed inset-0 z-40 bg-ink/18 backdrop-blur-[1px] transition-opacity data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
       )}
       <DialogPrimitive.Popup
         className={cn(
-          'fixed inset-y-0 z-50 flex w-80 max-w-[90vw] flex-col bg-white shadow-xl transition-transform outline-none',
+          'fixed inset-y-0 z-50 flex w-80 max-w-[90vw] flex-col bg-drawer text-ink shadow-[0_12px_40px_rgba(26,25,23,0.08)] transition-transform outline-none',
           side === 'left'
-            ? 'left-0 border-r border-border data-[starting-style]:-translate-x-full data-[ending-style]:-translate-x-full'
-            : 'right-0 border-l border-border data-[starting-style]:translate-x-full data-[ending-style]:translate-x-full',
+            ? 'left-0 border-r border-ink/10 data-[starting-style]:-translate-x-full data-[ending-style]:-translate-x-full'
+            : 'right-0 border-l border-ink/10 data-[starting-style]:translate-x-full data-[ending-style]:translate-x-full',
           className,
         )}
         {...props}
@@ -37,7 +37,7 @@ export function SheetPopup({
         {children}
         <DialogPrimitive.Close
           aria-label="收起抽屉"
-          className="absolute top-3.5 right-3.5 inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted hover:bg-[#f1f5f9] hover:text-ink"
+          className="absolute top-3.5 right-4 inline-flex size-7 cursor-pointer items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface-hover hover:text-ink"
         >
           <X className="size-4" />
         </DialogPrimitive.Close>
@@ -49,7 +49,7 @@ export function SheetPopup({
 export function SheetHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('flex flex-col gap-1 border-b border-border px-4 py-3.5 pr-11', className)}
+      className={cn('flex flex-col gap-1 border-b border-border/80 px-5 py-4 pr-12', className)}
       {...props}
     />
   );
@@ -57,10 +57,18 @@ export function SheetHeader({ className, ...props }: React.HTMLAttributes<HTMLDi
 
 export function SheetTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   return (
-    <DialogPrimitive.Title className={cn('text-sm font-semibold text-ink', className)} {...props} />
+    <DialogPrimitive.Title
+      className={cn('font-serif text-[15.5px] font-semibold tracking-tight text-ink', className)}
+      {...props}
+    />
   );
 }
 
 export function SheetDescription({ className, ...props }: DialogPrimitive.Description.Props) {
-  return <DialogPrimitive.Description className={cn('text-xs text-muted', className)} {...props} />;
+  return (
+    <DialogPrimitive.Description
+      className={cn('text-xs leading-relaxed text-muted', className)}
+      {...props}
+    />
+  );
 }

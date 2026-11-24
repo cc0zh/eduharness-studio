@@ -8,6 +8,7 @@ import {
 } from '@eduharness-studio/engine';
 import { locateEvidence } from '../apps/web/src/lesson-evidence.js';
 import {
+  beatAutoplayDelayMs,
   findBoardPage,
   projectBoard,
   shouldFollowLatestPage,
@@ -101,4 +102,30 @@ test('a specific subtitle anchors its own page even when its teacher turn contin
   assert.equal(next?.pageIndex, 1);
   assert.equal(next?.firstCard, 'changed-base-rate');
   assert.equal(next?.caption?.step_id, 21);
+});
+
+test('beatAutoplayDelayMs opens quickly, scales with reading load, and stays fast across layout beats', () => {
+  assert.equal(beatAutoplayDelayMs(undefined), 120);
+  assert.equal(beatAutoplayDelayMs({ type: 'new_column', step_id: 4, column: 2 }), 320);
+  assert.equal(
+    beatAutoplayDelayMs({ type: 'ask', step_id: 8, card_id: 'a1', mode: 'open', prompt: '想想？' }),
+    240,
+  );
+  const shortSpeak = beatAutoplayDelayMs({ type: 'speak', step_id: 2, text: '看这里。' });
+  const longSpeak = beatAutoplayDelayMs({
+    type: 'speak',
+    step_id: 3,
+    text: '先猜一下：听见警报，就能把八成原样搬过来吗？我们换成一百件包裹来画。',
+  });
+  assert.ok(shortSpeak >= 2200 && longSpeak > shortSpeak && longSpeak <= 4500);
+  const formulaBoard = beatAutoplayDelayMs({
+    type: 'board',
+    step_id: 10,
+    column: 1,
+    card_id: 'c1',
+    title: '贝叶斯公式',
+    content: '分子是贴标且报警，分母是所有报警。',
+    formula: 'P(M\\mid A)=\\frac{P(A\\mid M)P(M)}{P(A)}',
+  });
+  assert.ok(formulaBoard >= 2400 && formulaBoard <= 4200);
 });

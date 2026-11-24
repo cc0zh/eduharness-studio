@@ -1,15 +1,19 @@
+import type { Action } from '@eduharness-studio/engine';
 import { Pause, Play, Send, SkipForward, X } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import { EvidenceLink } from './EvidenceLink';
+import { LessonAskCard } from './LessonAskCard';
 import type { useLessonPlayback } from './useLessonPlayback';
 
 export function PlaybackControls({
   playback,
   caption,
+  ask,
   captionEvidence,
 }: {
   playback: ReturnType<typeof useLessonPlayback>;
   caption: string;
+  ask?: Extract<Action, { type: 'ask' }>;
   captionEvidence?: {
     number?: number;
     selected: boolean;
@@ -28,8 +32,8 @@ export function PlaybackControls({
           ? '正在处理…'
           : playback.starting
             ? '正在连接课堂'
-            : playback.askStep !== null
-              ? '等待你的回答'
+            : ask
+              ? '等待作答'
               : playback.paused
                 ? '已暂停'
                 : '正在讲解';
@@ -42,116 +46,138 @@ export function PlaybackControls({
   }
 
   return (
-    <section
-      aria-label="课堂播放控制"
-      className="pointer-events-auto rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-[0_16px_56px_-24px_rgba(15,23,42,0.44)] backdrop-blur-xl sm:px-5"
-    >
-      {playback.error && (
-        <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
-          <p role="alert">{playback.error}</p>
-          {playback.retrySave && (
-            <button
-              type="button"
-              onClick={playback.retrySave}
-              className="rounded-lg border border-amber-300 px-2 py-1.5 font-semibold hover:bg-amber-100"
-            >
-              重试保存
-            </button>
+    <div className="shrink-0 px-3 pt-1 pb-3 sm:px-7 sm:pb-4">
+      <section
+        aria-label="课堂播放控制"
+        className="mx-auto max-w-[56rem] overflow-hidden rounded-[14px] border border-ink/10 bg-surface shadow-[0_4px_20px_rgba(26,25,23,0.045),0_1px_2px_rgba(26,25,23,0.02)]"
+      >
+        <div className="px-4 py-3 sm:px-5 sm:py-3.5">
+          {playback.error && (
+            <div className="mb-2.5 flex flex-wrap items-center gap-2 rounded-lg bg-accent-soft/75 px-3 py-1.5 text-xs text-accent">
+              <p role="alert">{playback.error}</p>
+              {playback.retrySave && (
+                <button
+                  type="button"
+                  onClick={playback.retrySave}
+                  className="cursor-pointer rounded-md border border-accent/35 px-2 py-0.5 font-medium hover:bg-accent-soft"
+                >
+                  重试保存
+                </button>
+              )}
+            </div>
+          )}
+
+          {ask ? (
+            <LessonAskCard
+              key={ask.step_id}
+              ask={ask}
+              text={playback.answerText}
+              canAnswer={playback.canAnswer}
+              setText={playback.setAnswerText}
+              submit={playback.submitAnswer}
+            />
+          ) : (
+            <div className="space-y-2.5">
+              {/* 上行：全宽舒展的导师口语旁白 */}
+              <div
+                data-caption-evidence={captionEvidence?.selected || undefined}
+                className="rounded-lg transition-colors data-[caption-evidence=true]:bg-accent-soft/75 data-[caption-evidence=true]:px-3 data-[caption-evidence=true]:py-2"
+                aria-live="polite"
+              >
+                {(captionEvidence?.selected || captionEvidence?.number !== undefined) && (
+                  <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                    <p className="text-[11px] font-medium text-accent">
+                      {captionEvidence.selected
+                        ? captionEvidence.contextual
+                          ? '关联字幕'
+                          : '证据字幕'
+                        : '课堂字幕'}
+                    </p>
+                    {captionEvidence.number !== undefined && (
+                      <EvidenceLink
+                        number={captionEvidence.number}
+                        onClick={() => {
+                          if (captionEvidence.number !== undefined) {
+                            captionEvidence.select(captionEvidence.number);
+                          }
+                        }}
+                      />
+                    )}
+                    {captionEvidence.selected && (
+                      <button
+                        type="button"
+                        aria-label="返回实时字幕"
+                        title="返回实时字幕"
+                        onClick={captionEvidence.clear}
+                        className="ml-auto grid size-5 cursor-pointer place-items-center rounded-md text-accent hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-ink"
+                      >
+                        <X aria-hidden="true" className="size-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )}
+                <p data-subtitle="true" className="text-[14.5px] leading-[1.72] text-ink">
+                  {caption}
+                </p>
+              </div>
+
+              {/* 下行：柔和微圆角节拍控件 + 轻量插话入口 */}
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border-faint/80 pt-2.5">
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <button
+                    type="button"
+                    aria-label={playback.paused ? '继续' : '暂停'}
+                    onClick={playback.togglePaused}
+                    disabled={!playback.canToggle}
+                    className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg bg-ink px-3 text-xs font-medium text-surface transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {playback.paused ? (
+                      <Play aria-hidden="true" className="size-3" />
+                    ) : (
+                      <Pause aria-hidden="true" className="size-3" />
+                    )}
+                    {playback.paused ? '继续' : '暂停'}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="单拍前进 Step"
+                    onClick={playback.stepForward}
+                    disabled={!playback.canStep}
+                    className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg border border-ink/12 bg-canvas/70 px-2.5 text-xs font-medium text-ink-secondary transition-colors hover:border-ink/35 hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <SkipForward aria-hidden="true" className="size-3" />
+                    单拍 Step
+                  </button>
+                  <span className="pl-1.5 text-xs text-muted">{status}</span>
+                </div>
+
+                <form
+                  onSubmit={interrupt}
+                  className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg bg-canvas/75 px-3 py-1 transition-colors focus-within:bg-canvas focus-within:ring-1 focus-within:ring-ink/20 sm:max-w-xs"
+                >
+                  <input
+                    aria-label="打断插话"
+                    placeholder="有疑问？随时插话…"
+                    maxLength={1000}
+                    value={interruption}
+                    onChange={(event) => setInterruption(event.target.value)}
+                    disabled={!playback.canInterrupt}
+                    className="min-w-0 flex-1 bg-transparent py-0.5 text-xs text-ink outline-none placeholder:text-ink-faint disabled:opacity-50"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!playback.canInterrupt || !interruption.trim()}
+                    className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 text-xs font-medium text-ink-secondary transition-colors hover:text-accent disabled:cursor-not-allowed disabled:opacity-35"
+                  >
+                    <Send aria-hidden="true" className="size-3" />
+                    插话
+                  </button>
+                </form>
+              </div>
+            </div>
           )}
         </div>
-      )}
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 sm:flex-nowrap">
-        <div
-          data-caption-evidence={captionEvidence?.selected || undefined}
-          className="basis-full rounded-md data-[caption-evidence=true]:bg-amber-50 data-[caption-evidence=true]:px-2 data-[caption-evidence=true]:ring-1 data-[caption-evidence=true]:ring-amber-400 sm:min-w-0 sm:flex-1"
-          aria-live="polite"
-        >
-          <div className="flex flex-wrap items-center gap-1.5">
-            <p className="text-[11px] font-semibold tracking-wide text-primary">
-              {captionEvidence?.selected
-                ? captionEvidence.contextual
-                  ? '关联字幕'
-                  : '证据字幕'
-                : '课堂字幕'}
-            </p>
-            {captionEvidence?.number !== undefined && (
-              <EvidenceLink
-                number={captionEvidence.number}
-                onClick={() => {
-                  if (captionEvidence.number !== undefined)
-                    captionEvidence.select(captionEvidence.number);
-                }}
-              />
-            )}
-            {captionEvidence?.selected && (
-              <button
-                type="button"
-                aria-label="返回实时字幕"
-                title="返回实时字幕"
-                onClick={captionEvidence.clear}
-                className="ml-auto grid size-6 place-items-center rounded-md text-primary hover:bg-highlight focus-visible:outline-2 focus-visible:outline-primary"
-              >
-                <X aria-hidden="true" className="size-3.5" />
-              </button>
-            )}
-          </div>
-          <p
-            data-subtitle="true"
-            className="mt-0.5 line-clamp-2 text-sm leading-relaxed text-slate-700"
-          >
-            {caption}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="hidden text-xs text-muted lg:block">{status}</span>
-          <button
-            type="button"
-            aria-label={playback.paused ? '继续' : '暂停'}
-            onClick={playback.togglePaused}
-            disabled={!playback.canToggle}
-            className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-border px-3 text-sm font-semibold text-ink hover:border-primary/40 hover:bg-primary-soft/40 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {playback.paused ? (
-              <Play aria-hidden="true" className="size-4" />
-            ) : (
-              <Pause aria-hidden="true" className="size-4" />
-            )}
-            {playback.paused ? '继续' : '暂停'}
-          </button>
-          <button
-            type="button"
-            aria-label="单拍前进 Step"
-            onClick={playback.stepForward}
-            disabled={!playback.canStep}
-            className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-border px-3 text-sm font-semibold text-ink hover:bg-primary-soft/40 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <SkipForward aria-hidden="true" className="size-4" />
-            单拍 Step
-          </button>
-        </div>
-        <form
-          onSubmit={interrupt}
-          className="flex min-w-0 flex-1 items-stretch gap-1.5 sm:max-w-80"
-        >
-          <input
-            aria-label="打断插话"
-            placeholder="有疑问？随时插话…"
-            maxLength={1000}
-            value={interruption}
-            onChange={(event) => setInterruption(event.target.value)}
-            disabled={!playback.canInterrupt}
-            className="min-w-0 flex-1 rounded-xl border border-border bg-white px-2.5 text-sm outline-none placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
-          />
-          <button
-            type="submit"
-            disabled={!playback.canInterrupt || !interruption.trim()}
-            className="inline-flex min-h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-primary px-2.5 text-sm font-semibold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Send aria-hidden="true" className="size-4" />
-            插话
-          </button>
-        </form>
-      </div>
-    </section>
+      </section>
+    </div>
   );
 }

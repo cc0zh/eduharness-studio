@@ -92,3 +92,32 @@ export function latestCaption(actions: readonly Action[]) {
   }
   return undefined;
 }
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+// 按上一拍已在屏幕上的内容量计算舒适阅读停顿时长（毫秒）
+export function beatAutoplayDelayMs(previous?: Action): number {
+  if (!previous) return 120;
+  switch (previous.type) {
+    case 'new_column':
+    case 'new_page':
+      return 320;
+    case 'ask':
+      return 240;
+    case 'keypoint_complete':
+      return 1100;
+    case 'highlight':
+      return 1300;
+    case 'graph':
+      return 2800;
+    case 'board': {
+      const length = (previous.title?.length ?? 0) + previous.content.length;
+      const formulaBonus = previous.formula ? 650 : 0;
+      return clamp(1600 + length * 30 + formulaBonus, 2400, 4200);
+    }
+    case 'speak':
+      return clamp(1500 + previous.text.length * 65, 2200, 4500);
+  }
+}

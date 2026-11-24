@@ -1,9 +1,9 @@
 import type { CourseBlueprint, LessonRef } from '@eduharness-studio/engine';
-import { ArrowRight, LockKeyhole } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, LockKeyhole } from 'lucide-react';
 import { lazy, Suspense } from 'react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { coursePath, lessonPath, useRead } from '@/lib/courses';
+import { EditorialSkeleton } from './EditorialSkeleton';
 
 const LessonWhiteboard = lazy(() =>
   import('./LessonWhiteboard').then(({ LessonWhiteboard }) => ({ default: LessonWhiteboard })),
@@ -19,7 +19,7 @@ export function CoursePage({
   const { data: course, error, retry } = useRead<CourseBlueprint>(coursePath(courseId));
 
   return (
-    <main className="dot-grid-canvas min-h-[calc(100dvh-4rem)]">
+    <main className="min-h-[calc(100dvh-3.5rem)]">
       {course ? (
         lessonId ? (
           <Whiteboard course={course} lessonId={lessonId} {...xray} />
@@ -27,20 +27,18 @@ export function CoursePage({
           <Blueprint course={course} />
         )
       ) : (
-        <div className="mx-auto max-w-4xl px-5 py-12 sm:px-8">
+        <div className="mx-auto max-w-3xl px-5 py-12 sm:px-8">
           {error ? (
-            <div className="max-w-xl space-y-4 rounded-2xl border border-border bg-surface p-6 shadow-sm">
-              <p role="alert" className="text-amber-800">
+            <div className="space-y-4 border-l-2 border-accent pl-4">
+              <p role="alert" className="text-sm text-accent">
                 {error}
               </p>
-              <Button variant="outline" onClick={retry}>
+              <Button variant="outline" size="sm" onClick={retry}>
                 重新加载
               </Button>
             </div>
           ) : (
-            <p role="status" className="text-sm text-muted">
-              正在打开课程…
-            </p>
+            <EditorialSkeleton label="正在打开课程蓝图…" rows={3} />
           )}
         </div>
       )}
@@ -51,40 +49,51 @@ export function CoursePage({
 function Blueprint({ course }: { course: CourseBlueprint }) {
   const lessonCount = course.units.reduce((total, unit) => total + unit.lessons.length, 0);
   return (
-    <div className="mx-auto max-w-4xl px-5 py-8 sm:px-8 sm:py-12">
-      <Button variant="ghost" className="-ml-3 mb-4" render={<a href="/" />}>
-        ← 首页
-      </Button>
-      <header className="mb-6 rounded-2xl border border-primary/20 bg-surface p-5 shadow-sm sm:p-7">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge className="bg-highlight text-ink">课程蓝图</Badge>
-          <span className="text-sm text-muted">
-            {course.units.length} 个单元 · {lessonCount} 节课
-          </span>
-        </div>
-        <h1 className="mt-3 text-3xl font-bold text-primary [overflow-wrap:anywhere]">
+    <div className="mx-auto max-w-[52rem] px-5 pt-7 pb-20 sm:px-8 sm:pt-10">
+      <div className="mb-8 flex items-center justify-between border-b border-border pb-3">
+        <a
+          href="/"
+          className="inline-flex items-center gap-1.5 text-xs text-ink-secondary transition-colors hover:text-ink"
+        >
+          <ArrowLeft className="size-3.5" aria-hidden="true" />
+          返回首页
+        </a>
+        <span className="font-mono text-[11px] text-muted">
+          {course.units.length} UNITS · {lessonCount} LESSONS
+        </span>
+      </div>
+
+      <header className="mb-10 border-b border-ink pb-7">
+        <p className="font-mono text-[11px] tracking-[0.08em] uppercase text-accent">
+          Course Blueprint · 动态课程蓝图
+        </p>
+        <h1 className="mt-2 font-serif text-3xl font-semibold leading-snug text-ink [overflow-wrap:anywhere]">
           {course.title}
         </h1>
-        <p className="mt-2 text-sm leading-relaxed text-muted">
-          从第一节就绪课节开始。后续课节在学到时生成。
+        <p className="mt-2.5 max-w-2xl text-sm leading-relaxed text-ink-secondary">
+          从第一节就绪课节进入白板；后续课节保留为按需懒生成态，随你的真实作答动态展开。
         </p>
       </header>
-      <div className="space-y-4">
+
+      <div className="space-y-10">
         {course.units.map((unit, index) => (
-          <section
-            key={unit.id}
-            aria-labelledby={unit.id}
-            className="rounded-2xl border border-border bg-surface p-5 shadow-sm sm:p-6"
-          >
-            <div className="flex flex-wrap items-center gap-3">
-              <Badge>单元 {index + 1}</Badge>
-              <h2 id={unit.id} className="text-lg font-bold">
+          <section key={unit.id} aria-labelledby={unit.id}>
+            <div className="mb-3.5 flex flex-wrap items-baseline gap-3 border-b border-border pb-2.5">
+              <span className="font-serif text-sm italic text-accent">
+                Unit {String(index + 1).padStart(2, '0')}
+              </span>
+              <h2 id={unit.id} className="font-serif text-lg font-semibold text-ink">
                 {unit.title}
               </h2>
             </div>
-            <ol aria-label={`${unit.title}的课节`} className="mt-3 divide-y divide-border">
-              {unit.lessons.map((lesson, l) => (
-                <LessonRow key={lesson.id} courseId={course.id} lesson={lesson} number={l + 1} />
+            <ol aria-label={`${unit.title}的课节`} className="space-y-2.5">
+              {unit.lessons.map((lesson, lessonIndex) => (
+                <LessonRow
+                  key={lesson.id}
+                  courseId={course.id}
+                  lesson={lesson}
+                  number={lessonIndex + 1}
+                />
               ))}
             </ol>
           </section>
@@ -103,26 +112,50 @@ function LessonRow({
   courseId: string;
   number: number;
 }) {
+  const locked = lesson.status === 'locked';
   return (
-    <li className="grid items-center gap-2 py-3 sm:grid-cols-[auto_1fr_auto] sm:gap-3">
-      <span aria-hidden="true" className="hidden text-sm tabular-nums text-muted sm:block">
+    <li
+      className={
+        locked
+          ? 'grid items-center gap-3 rounded-sm border border-dashed border-border-strong px-5 py-4 sm:grid-cols-[auto_1fr_auto]'
+          : 'grid items-center gap-3 rounded-sm border border-border-strong bg-surface px-5 py-4 transition-colors hover:border-ink sm:grid-cols-[auto_1fr_auto]'
+      }
+    >
+      <span
+        aria-hidden="true"
+        className="hidden font-mono text-xs tabular-nums text-muted sm:block"
+      >
         {String(number).padStart(2, '0')}
       </span>
       <div className="min-w-0 [overflow-wrap:anywhere]">
-        <h3 className="text-sm font-semibold">{lesson.title}</h3>
-        <p className="mt-1 text-sm leading-relaxed text-muted">{lesson.summary}</p>
-      </div>
-      {lesson.status === 'locked' ? (
-        <Badge variant="muted" className="w-fit px-3 py-1.5">
-          <LockKeyhole className="size-3.5" aria-hidden="true" /> 学到这里时生成
-        </Badge>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge>{lesson.status === 'completed' ? '已完成' : '已就绪'}</Badge>
-          <Button size="sm" render={<a href={lessonPath({ courseId, lessonId: lesson.id })} />}>
-            进入白板 <ArrowRight aria-hidden="true" />
-          </Button>
+        <div className="mb-1 flex items-center gap-2 text-[11px]">
+          {locked ? (
+            <span className="inline-flex items-center gap-1 text-muted">
+              <LockKeyhole className="size-3" aria-hidden="true" />
+              学到这里时生成
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 font-medium text-olive">
+              <Check className="size-3" aria-hidden="true" />
+              {lesson.status === 'completed' ? '已完成' : '已就绪'}
+            </span>
+          )}
         </div>
+        <h3
+          className={
+            locked
+              ? 'font-serif text-base font-medium text-ink-secondary'
+              : 'font-serif text-base font-semibold text-ink'
+          }
+        >
+          {lesson.title}
+        </h3>
+        <p className="mt-1 text-[13px] leading-relaxed text-muted">{lesson.summary}</p>
+      </div>
+      {!locked && (
+        <Button size="sm" render={<a href={lessonPath({ courseId, lessonId: lesson.id })} />}>
+          进入白板 <ArrowRight className="size-3.5" aria-hidden="true" />
+        </Button>
       )}
     </li>
   );
@@ -144,9 +177,9 @@ function Whiteboard({
   return lesson && lesson.status !== 'locked' ? (
     <Suspense
       fallback={
-        <p role="status" className="mx-auto max-w-4xl px-5 py-12 text-sm text-muted">
-          正在加载课堂…
-        </p>
+        <div className="mx-auto max-w-4xl px-5 py-12">
+          <EditorialSkeleton label="正在加载白板课堂…" rows={4} />
+        </div>
       }
     >
       <LessonWhiteboard
@@ -158,18 +191,13 @@ function Whiteboard({
       />
     </Suspense>
   ) : (
-    <div className="mx-auto max-w-4xl px-5 py-12">
-      <section
-        aria-labelledby="lesson-title"
-        className="rounded-2xl border border-border bg-surface p-6 shadow-sm"
-      >
-        <p className="text-sm font-medium text-primary">
-          Eduharness课堂{unit && ` · ${unit.title}`}
-        </p>
-        <h1 id="lesson-title" className="mt-3 text-2xl font-bold tracking-tight">
+    <div className="mx-auto max-w-3xl px-5 py-14">
+      <section aria-labelledby="lesson-title" className="border-l-2 border-accent pl-5">
+        <p className="font-mono text-xs text-muted">Eduharness课堂{unit && ` · ${unit.title}`}</p>
+        <h1 id="lesson-title" className="mt-2 font-serif text-2xl font-semibold text-ink">
           {title}
         </h1>
-        <p className="mt-3 text-sm leading-relaxed text-muted">
+        <p className="mt-2.5 text-sm leading-relaxed text-ink-secondary">
           请返回课程蓝图，选择已经就绪的课节。
         </p>
       </section>

@@ -33,4 +33,4 @@ npm run dev
 - [当前里程碑状态](docs/status.md)
 - [分阶段 E2E 验收场景](docs/scenarios.md)
 - [本地运行与排障手册](docs/runbook.md)
-- [路线图（M0–M3）](docs/plans/roadmap.md)
+- [路线图（M0–M4）](docs/plans/roadmap.md)

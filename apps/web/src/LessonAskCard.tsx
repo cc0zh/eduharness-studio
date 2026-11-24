@@ -1,5 +1,6 @@
 import type { Action } from '@eduharness-studio/engine';
-import { Send } from 'lucide-react';
+import { PenLine, Send } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 
 export function LessonAskCard({
   ask,
@@ -14,31 +15,29 @@ export function LessonAskCard({
   setText: (text: string) => void;
   submit: () => Promise<void>;
 }) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // 遇 ask 停顿时自动聚焦答题框，实现与底部棉纸台原地变形的焦点唯一性
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
+
   return (
-    <aside
+    <section
       data-ask-card="true"
       aria-labelledby="ask-title"
-      className="pointer-events-auto mx-auto w-full max-w-2xl rounded-2xl border border-[#E4C37A] bg-white p-4 shadow-[0_18px_60px_-20px_rgba(80,61,21,0.38)] sm:p-5"
+      className="animate-paper-reveal space-y-3"
     >
-      <div className="mb-3 flex items-start gap-3">
-        <span
-          aria-hidden="true"
-          className="grid size-9 shrink-0 place-items-center rounded-full bg-[#FFF2D6] font-bold text-[#91621D]"
-        >
-          问
-        </span>
-        <div className="min-w-0">
-          <h2 id="ask-title" className="text-sm font-bold text-ink">
-            停下来想一想
-          </h2>
-          <p className="mt-1 text-sm leading-relaxed text-slate-700">{ask.prompt}</p>
-          {ask.hint && (
-            <p className="mt-1.5 text-xs leading-relaxed text-muted">提示：{ask.hint}</p>
-          )}
+      <div className="space-y-1">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-accent">
+          <PenLine className="size-3.5" aria-hidden="true" />
+          <h2 id="ask-title">停下来想一想 · 随堂检验</h2>
         </div>
+        <p className="font-serif text-[15px] leading-relaxed text-ink">{ask.prompt}</p>
+        {ask.hint && <p className="text-xs leading-relaxed text-muted">提示：{ask.hint}</p>}
       </div>
       <form
-        className="flex flex-col gap-2 sm:flex-row"
+        className="flex flex-col gap-2 sm:flex-row sm:items-end"
         onSubmit={(event) => {
           event.preventDefault();
           void submit();
@@ -48,23 +47,24 @@ export function LessonAskCard({
           写下你的回答
         </label>
         <textarea
+          ref={textareaRef}
           id="class-answer"
           value={text}
           onChange={(event) => setText(event.target.value)}
           rows={2}
           maxLength={1000}
           placeholder="用自己的话写下思路…"
-          className="min-h-12 min-w-0 flex-1 resize-y rounded-xl border border-border bg-white px-3 py-2.5 text-sm outline-none placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20"
+          className="min-h-11 min-w-0 flex-1 resize-none rounded-[10px] border border-ink/12 bg-canvas/80 px-3.5 py-2.5 text-sm leading-relaxed text-ink outline-none placeholder:text-ink-faint transition-colors focus:border-ink/35 focus:bg-surface"
         />
         <button
           type="submit"
           disabled={!canAnswer}
-          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-10 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-[10px] bg-ink px-4 text-xs font-medium text-surface transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-45"
         >
-          <Send aria-hidden="true" className="size-4" />
+          <Send aria-hidden="true" className="size-3.5" />
           提交回答
         </button>
       </form>
-    </aside>
+    </section>
   );
 }

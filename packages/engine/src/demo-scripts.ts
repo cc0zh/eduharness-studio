@@ -1,16 +1,25 @@
 import { compileLesson } from './lesson-playback.js';
 
-const alarmAreas = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 210">
-  <rect width="440" height="210" rx="12" fill="#F2F8F7"/>
-  <rect x="20" y="52" width="400" height="120" fill="#D9ECEB"/>
-  <rect x="20" y="52" width="40" height="96" fill="#FDE0A6"/>
-  <rect x="60" y="52" width="360" height="24" fill="#FDE0A6"/>
-  <rect x="20" y="52" width="400" height="120" fill="none" stroke="#0F5250"/>
-  <path d="M60 52V172M20 148H60M60 76H420" stroke="#0F5250" fill="none"/>
-  <g fill="#0F5250" font-family="sans-serif" font-size="16" text-anchor="middle">
-    <text x="42" y="38">贴标 10</text><text x="240" y="38">未贴标 90</text>
-    <text x="40" y="106">8</text><text x="240" y="70">18</text>
-    <text x="220" y="195">琥珀色＝报警 · 面积代表件数</text>
+const alarmAreas = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 216">
+  <rect width="440" height="216" fill="#F6F3EC"/>
+  <path d="M20 34H58M20 30V38M58 30V38" stroke="#1A1917" stroke-width="0.9" fill="none"/>
+  <path d="M64 34H420M64 30V38M420 30V38" stroke="#827B71" stroke-width="0.9" fill="none"/>
+  <rect x="20" y="46" width="40" height="96" fill="#ECD49B" stroke="#1A1917" stroke-width="1.15"/>
+  <path d="M20 62L36 46M20 78L52 46M20 94L60 54M20 110L60 70M20 126L60 86M20 142L60 102M36 142L60 118M52 142L60 134" stroke="#1A1917" stroke-width="0.75" stroke-opacity="0.22" fill="none"/>
+  <rect x="20" y="142" width="40" height="24" fill="#FBF9F4" stroke="#827B71" stroke-width="0.85" stroke-dasharray="3 2"/>
+  <rect x="64" y="46" width="356" height="26" fill="#F3D6B6" stroke="#A84428" stroke-width="1.2"/>
+  <path d="M74 72L100 46M98 72L124 46M122 72L148 46M146 72L172 46M170 72L196 46M194 72L220 46M218 72L244 46M242 72L268 46M266 72L292 46M290 72L316 46M314 72L340 46M338 72L364 46M362 72L388 46M386 72L412 46" stroke="#A84428" stroke-width="0.75" stroke-opacity="0.28" fill="none"/>
+  <rect x="64" y="72" width="356" height="94" fill="#EAE5D9" stroke="#BFB6A6" stroke-width="0.9"/>
+  <rect x="26" y="82" width="28" height="24" fill="#F6F3EC" fill-opacity="0.9"/>
+  <rect x="218" y="49" width="48" height="20" fill="#F6F3EC" fill-opacity="0.92"/>
+  <g fill="#1A1917" font-family="sans-serif" font-size="13" text-anchor="middle">
+    <text x="39" y="24">贴标 10</text>
+    <text x="242" y="24" fill="#4D4943">未贴标 90（基数 9 倍）</text>
+    <text x="40" y="99" font-size="16">8</text>
+    <text x="40" y="158" font-size="11" fill="#827B71">2 漏报</text>
+    <text x="242" y="64" font-size="15" fill="#A84428">18 误报</text>
+    <text x="242" y="124" font-size="13" fill="#827B71">72 件未贴标 · 正常放行</text>
+    <text x="220" y="196" font-size="12" fill="#A84428">琥珀色＝报警（8 + 18 = 26 件）· 面积代表件数</text>
   </g>
 </svg>`;
 export function bayesLesson() {

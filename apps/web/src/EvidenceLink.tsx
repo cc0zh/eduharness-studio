@@ -13,7 +13,7 @@ export function EvidenceLink({
       type="button"
       data-evidence-link={number}
       onClick={onClick}
-      className="inline-flex min-h-6 items-center rounded-md border border-primary/20 bg-primary-soft px-1.5 font-mono text-[11px] font-semibold text-primary hover:border-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+      className="inline-flex min-h-5 cursor-pointer items-center rounded-md border border-accent/25 bg-accent-soft/55 px-1.5 font-mono text-[10.5px] font-medium text-accent transition-colors hover:border-accent hover:bg-accent hover:text-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
     >
       {bracketed ? `[${label}]` : label}
     </button>

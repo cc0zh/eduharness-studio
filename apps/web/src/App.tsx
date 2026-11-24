@@ -1,9 +1,19 @@
-import { BookOpen } from 'lucide-react';
+import { ArrowLeft, SlidersHorizontal } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogClose,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPopup,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { coursePath } from '@/lib/courses';
+import { cn } from '@/lib/utils';
 import { CoursePage } from './CoursePage';
 import { HomePage } from './HomePage';
 
@@ -13,6 +23,9 @@ export function App() {
     /^\/courses\/([a-z0-9-]+)(?:\/lessons\/([a-z0-9-]+))?\/?$/.exec(pathname) ?? [];
   const [homeVisit, setHomeVisit] = useState(0);
   const [xrayOpen, setXrayOpen] = useState(false);
+  const isHome = !courseId && pathname === '/';
+  const isBlueprint = Boolean(courseId && !lessonId);
+  const isClassroom = Boolean(courseId && lessonId);
 
   useEffect(() => {
     if (pathname !== '/') return;
@@ -25,49 +38,73 @@ export function App() {
   }, [pathname]);
 
   return (
-    <div className="min-h-dvh bg-canvas text-ink">
-      <header className="h-16 border-b border-border bg-surface">
+    <div
+      className={cn(
+        'editorial-paper text-ink',
+        isClassroom ? 'h-dvh overflow-hidden' : 'min-h-dvh',
+      )}
+    >
+      <header
+        className={cn('h-14', isHome ? 'bg-transparent' : 'border-b border-border bg-canvas')}
+      >
         <nav
           aria-label="课堂导航"
-          className="mx-auto flex h-full max-w-7xl items-center justify-between gap-2 px-3 sm:gap-3 sm:px-8"
+          className={cn(
+            'mx-auto flex h-full items-center justify-between gap-2 px-4 sm:gap-3 sm:px-7',
+            isHome ? 'max-w-[55rem]' : isBlueprint ? 'max-w-[52rem] sm:px-8' : 'max-w-[84rem]',
+          )}
         >
-          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+          <div className="flex min-w-0 items-center gap-2 overflow-hidden sm:gap-3">
             {courseId && lessonId && (
-              <Button variant="outline" size="sm" render={<a href={coursePath(courseId)} />}>
-                ← 课程蓝图
-              </Button>
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0 px-2 text-xs text-ink-secondary"
+                  render={<a href={coursePath(courseId)} />}
+                >
+                  <ArrowLeft className="size-3.5" aria-hidden="true" />
+                  课程蓝图
+                </Button>
+                <span aria-hidden="true" className="hidden h-3.5 w-px bg-border-strong sm:block" />
+              </>
             )}
             <a
               href="/"
-              className="flex items-center gap-2 whitespace-nowrap rounded-md text-sm font-bold text-primary focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
-            >
-              {!(courseId && lessonId) && (
-                <span className="grid size-8 place-items-center rounded-lg bg-primary text-white">
-                  <BookOpen className="size-4" aria-hidden="true" />
-                </span>
+              className={cn(
+                'items-center gap-2 whitespace-nowrap rounded-sm font-serif text-[15px] font-semibold tracking-tight text-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ink',
+                courseId && lessonId ? 'hidden sm:flex' : 'flex',
               )}
+            >
+              <span aria-hidden="true" className="size-1.5 rounded-full bg-accent" />
               Eduharness课堂
             </a>
+            {!lessonId && (
+              <span className="hidden font-mono text-[10px] tracking-[0.08em] uppercase text-muted sm:inline">
+                Studio
+              </span>
+            )}
           </div>
-          <div className="flex shrink-0 items-center gap-3">
-            <Badge variant="secondary" className={lessonId ? 'hidden sm:inline-flex' : undefined}>
-              离线确定性模式
-            </Badge>
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            <ModelStatusDialog compact={Boolean(lessonId)} />
             {lessonId && (
-              <label
-                htmlFor="agent-xray"
-                className="flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-primary sm:text-sm"
-              >
-                <span>
-                  <span className="hidden min-[380px]:inline">Agent </span>X-Ray
-                </span>
-                <Switch
-                  id="agent-xray"
-                  checked={xrayOpen}
-                  onCheckedChange={setXrayOpen}
-                  aria-label="Agent X-Ray"
-                />
-              </label>
+              <>
+                <span aria-hidden="true" className="h-3.5 w-px bg-border-strong" />
+                <label
+                  htmlFor="agent-xray"
+                  className="flex cursor-pointer items-center gap-2 text-xs font-medium text-ink-secondary hover:text-ink"
+                >
+                  <span>
+                    <span className="hidden sm:inline">Agent </span>X-Ray
+                  </span>
+                  <Switch
+                    id="agent-xray"
+                    checked={xrayOpen}
+                    onCheckedChange={setXrayOpen}
+                    aria-label="Agent X-Ray"
+                  />
+                </label>
+              </>
             )}
           </div>
         </nav>
@@ -82,11 +119,48 @@ export function App() {
       ) : pathname === '/' ? (
         <HomePage key={homeVisit} />
       ) : (
-        <main className="mx-auto max-w-6xl space-y-4 p-8">
-          <h1 className="text-xl font-bold">找不到这个页面</h1>
+        <main className="mx-auto max-w-4xl space-y-4 px-6 py-14">
+          <h1 className="font-serif text-2xl font-semibold">找不到这个页面</h1>
           <Button render={<a href="/" />}>返回首页</Button>
         </main>
       )}
     </div>
+  );
+}
+
+function ModelStatusDialog({ compact }: { compact: boolean }) {
+  return (
+    <Dialog>
+      <DialogTrigger
+        render={
+          <button
+            type="button"
+            aria-label={compact ? '离线确定性模式（模型与 BYOK）' : undefined}
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted transition-colors hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-ink"
+          />
+        }
+      >
+        <SlidersHorizontal className="size-3.5" aria-hidden="true" />
+        <span className={compact ? 'hidden sm:inline' : undefined}>离线确定性模式</span>
+      </DialogTrigger>
+      <DialogPopup>
+        <DialogHeader>
+          <DialogTitle>模型与自带密钥（BYOK）</DialogTitle>
+          <DialogDescription>当前运行于零密钥离线确定性课堂模式。</DialogDescription>
+        </DialogHeader>
+        <div className="mt-4 space-y-3 text-xs leading-relaxed text-ink-secondary">
+          <p className="border-l-2 border-accent pl-3 text-ink">
+            本阶段（M1.5）零模型费用，所有示范课与主题建课均由本地确定性引擎驱动，不发任何外部网络请求。
+          </p>
+          <p>
+            下一阶段（M2）将在此开放内存态 BYOK 供应商与密钥配置：密钥仅驻留服务端进程内存，不落盘
+            SQLite，清空即可随时回落离线模式。
+          </p>
+        </div>
+        <DialogFooter>
+          <DialogClose render={<Button size="sm">知道了</Button>} />
+        </DialogFooter>
+      </DialogPopup>
+    </Dialog>
   );
 }

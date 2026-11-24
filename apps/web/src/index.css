@@ -1,26 +1,132 @@
 @import "tailwindcss";
 
 @theme {
-  --color-primary: #0f5250;
-  --color-primary-hover: #115e59;
-  --color-primary-soft: #d9eceb;
-  --color-canvas: #f7f9f8;
-  --color-surface: #ffffff;
-  --color-drawer: #e2e7ea;
-  --color-border: #e2e8f0;
-  --color-ink: #111827;
-  --color-muted: #64748b;
-  --color-highlight: #fde0a6;
-  --color-warning-pill: #d99b38;
-}
+  /* 象牙棉纸 × 浓炭墨 × 焦赭赤陶（出版书房版 Token） */
+  --color-canvas: #f6f3ec;
+  --color-surface: #fbf9f4;
+  --color-surface-recessed: #efece3;
+  --color-surface-hover: #eae5d9;
+  --color-drawer: #f1ede4;
+  --color-drawer-surface: #faf8f3;
+  --color-border: #ddd6c8;
+  --color-border-faint: #e9e3d7;
+  --color-border-strong: #bfb6a6;
 
-.dot-grid-canvas {
-  background-color: var(--color-canvas);
-  background-image: radial-gradient(#cbd5e1 1.15px, transparent 1.15px);
-  background-size: 20px 20px;
+  --color-ink: #1a1917;
+  --color-ink-secondary: #4d4943;
+  --color-muted: #827b71;
+  --color-ink-faint: #aca59a;
+
+  /* 唯一功能/批注强调色系 */
+  --color-primary: #1a1917;
+  --color-primary-hover: #33302b;
+  --color-primary-soft: #efece3;
+  --color-accent: #a84428;
+  --color-accent-hover: #8e371f;
+  --color-accent-soft: #f3e4de;
+  --color-olive: #4a5b44;
+  --color-olive-soft: #e6ebe3;
+  --color-highlight: #e9d19a;
+  --color-warning-pill: #a84428;
+
+  /* 离线出版字体栈：英文与公式用 Georgia/Cambria，中文大标题优先 Noto Serif SC，严禁退回锯齿 SimSun */
+  --font-serif:
+    "Georgia", "Noto Serif SC", "Source Han Serif SC", "Songti SC", "PingFang SC",
+    "HarmonyOS Sans SC", "Microsoft YaHei UI", sans-serif;
+  --font-sans:
+    "Noto Sans SC", "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", -apple-system,
+    BlinkMacSystemFont, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
 }
 
 :root {
   --lesson-xray-width: 28vw;
   --lesson-xray-short-height: 46dvh;
+}
+
+html,
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  line-height: 1.8;
+  font-feature-settings: "kern" 1;
+}
+
+.board-columns-grid {
+  grid-template-columns: repeat(var(--board-cols, 1), minmax(min(100%, 19rem), 1fr));
+}
+
+@media (min-width: 768px) {
+  .board-columns-grid {
+    grid-template-columns: repeat(var(--board-visual-cols, 2), minmax(min(100%, 19rem), 1fr));
+  }
+}
+
+/* 离线极淡棉纸肌理（1.8% SVG 噪点，零外网资源） */
+.editorial-paper {
+  background-color: var(--color-canvas);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.022'/%3E%3C/svg%3E");
+}
+
+/* 兼容既有类名的暖纸画布（去冷灰点阵，回归纯净棉纸） */
+.dot-grid-canvas {
+  background-color: var(--color-canvas);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.022'/%3E%3C/svg%3E");
+}
+
+@keyframes paperReveal {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes highlightSweep {
+  from {
+    background-size: 0% 78%;
+  }
+  to {
+    background-size: 100% 78%;
+  }
+}
+
+@keyframes circleDraw {
+  from {
+    stroke-dashoffset: 310;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.animate-paper-reveal {
+  animation: paperReveal 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.editorial-highlight {
+  padding: 0 3px;
+  background-image: linear-gradient(90deg, rgba(214, 174, 92, 0.32), rgba(214, 174, 92, 0.32));
+  background-repeat: no-repeat;
+  background-position: 0 88%;
+  background-size: 100% 78%;
+  animation: highlightSweep 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.editorial-circle-path {
+  stroke-dasharray: 310;
+  stroke-dashoffset: 0;
+  animation: circleDraw 720ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-paper-reveal,
+  .editorial-highlight,
+  .editorial-circle-path {
+    animation: none;
+  }
 }

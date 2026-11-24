@@ -9,10 +9,11 @@ import {
 } from '@eduharness-studio/engine';
 import { ArrowRight } from 'lucide-react';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { coursePath, errorMessage, request } from '@/lib/courses';
+
+const QUICK_TOPICS = ['梯度下降与学习率直觉', 'HTTPS 握手与非对称加密', '熵与交叉熵的本质'];
 
 export function TopicIntake() {
   const [topic, setTopic] = useState('');
@@ -86,43 +87,50 @@ export function TopicIntake() {
   }
 
   return (
-    <section
-      aria-labelledby="topic-title"
-      className="rounded-2xl border border-primary/25 bg-surface p-5 shadow-sm sm:p-7"
-    >
-      <h2 id="topic-title" className="text-xl font-bold">
+    <section aria-labelledby="topic-title" className="text-left">
+      <h2 id="topic-title" className="sr-only">
         按主题建课
       </h2>
-      <p className="mt-1 text-sm text-muted">
-        根据你的起点和目标离线生成课程蓝图，不连接外部模型。
-      </p>
-      <form className="mt-5" onSubmit={(event) => void submit(event)}>
-        <div hidden={step !== null}>
-          <label htmlFor="topic" className="mb-2 block text-sm font-semibold">
+      <form
+        onSubmit={(event) => void submit(event)}
+        className="overflow-hidden rounded-[14px] border border-ink/12 bg-surface shadow-[0_2px_14px_rgba(26,25,23,0.035),0_1px_2px_rgba(26,25,23,0.02)] transition-[border-color,box-shadow] focus-within:border-ink/30 focus-within:shadow-[0_6px_24px_rgba(26,25,23,0.06)]"
+      >
+        <div hidden={step !== null} className="flex items-center gap-3 py-2.5 pr-2.5 pl-5">
+          <label htmlFor="topic" className="sr-only">
             学习主题
           </label>
-          <Input
+          <input
             ref={topicInput}
             id="topic"
-            placeholder="例如：概率的直觉"
+            type="text"
+            placeholder="输入你想彻底搞懂的主题，例如：线性插值、傅里叶变换…"
             value={topic}
             maxLength={INTAKE_LIMITS.topic}
             disabled={step !== null || pending}
-            className="h-11"
             onChange={(event) => changeTopic(event.target.value)}
+            className="min-w-0 flex-1 bg-transparent py-1.5 text-[15px] text-ink outline-none placeholder:text-ink-faint disabled:opacity-50"
           />
-          <p className="mt-3 text-sm text-muted">摸底基础 → 明确目标 → 生成课程蓝图</p>
+          <button
+            type="submit"
+            disabled={!canSubmit || pending}
+            className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-[9px] bg-ink px-4 py-2 text-[13px] font-medium text-surface transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <span>{pending ? '准备中…' : '开始轻调研'}</span>
+            <ArrowRight className="size-3.5" aria-hidden="true" />
+          </button>
         </div>
 
         {step && (
-          <div className="rounded-xl border border-primary/15 bg-primary-soft/20 p-4 sm:p-5">
+          <div className="bg-canvas/70 px-5 py-5">
             <h3
               ref={stepHeading}
               tabIndex={-1}
-              className="flex flex-wrap items-center gap-2 outline-none"
+              className="flex flex-wrap items-baseline gap-2.5 outline-none"
             >
-              <Badge>轻调研 · 第 {second ? 2 : 1} / 2 步</Badge>
-              <span className="min-w-0 text-sm font-semibold [overflow-wrap:anywhere]">
+              <span className="font-mono text-[11px] font-medium text-accent">
+                轻调研 · 第 {second ? 2 : 1} / 2 步
+              </span>
+              <span className="min-w-0 font-serif text-[15px] font-semibold text-ink [overflow-wrap:anywhere]">
                 {first?.topic}
               </span>
             </h3>
@@ -149,26 +157,47 @@ export function TopicIntake() {
                 />
               )
             )}
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-border-faint pt-3.5">
+              <Button variant="ghost" size="sm" onClick={back} disabled={pending}>
+                上一步
+              </Button>
+              <button
+                type="submit"
+                disabled={!canSubmit || pending}
+                className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-[13px] font-medium text-surface transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                <span>{pending ? '正在生成…' : second ? '生成课程蓝图' : '下一步'}</span>
+                <ArrowRight className="size-3.5" aria-hidden="true" />
+              </button>
+            </div>
           </div>
         )}
 
         {error && (
-          <p role="alert" className="mt-3 text-sm text-amber-800">
+          <p role="alert" className="border-t border-border-faint px-5 py-2.5 text-xs text-accent">
             {error}
           </p>
         )}
-        <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
-          {step && (
-            <Button variant="ghost" onClick={back} disabled={pending}>
-              上一步
-            </Button>
-          )}
-          <Button type="submit" disabled={!canSubmit || pending} className="h-10 px-4">
-            {pending ? '正在处理…' : second ? '生成课程蓝图' : first ? '下一步' : '开始轻调研'}
-            <ArrowRight aria-hidden="true" />
-          </Button>
-        </div>
       </form>
+
+      {!step && (
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-xs text-muted">
+          <span>试试主题：</span>
+          {QUICK_TOPICS.map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => {
+                changeTopic(item);
+                topicInput.current?.focus();
+              }}
+              className="cursor-pointer border-b border-border pb-px text-ink-secondary transition-colors hover:border-accent hover:text-accent"
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -197,13 +226,13 @@ function Question<Value extends string>({
 }) {
   const noteId = `${name}-note`;
   return (
-    <fieldset disabled={disabled} className="mt-4 min-w-0">
-      <legend className="text-base font-bold">{step.prompt}</legend>
-      <div className="mb-4 mt-3 flex flex-wrap gap-2">
+    <fieldset disabled={disabled} className="mt-3.5 min-w-0">
+      <legend className="text-[13.5px] font-medium text-ink">{step.prompt}</legend>
+      <div className="mt-3 mb-4 flex flex-wrap gap-2">
         {step.options.map((option) => (
           <label
             key={option.value}
-            className="cursor-pointer rounded-full border border-border bg-surface px-3 py-2 text-sm font-medium hover:border-primary/50 has-checked:border-primary has-checked:bg-primary has-checked:text-white has-focus-visible:ring-2 has-focus-visible:ring-primary/60 has-focus-visible:ring-offset-2"
+            className="cursor-pointer rounded-lg border border-ink/12 bg-surface px-3.5 py-1.5 text-[13px] text-ink-secondary transition-colors hover:border-ink/40 hover:text-ink has-checked:border-ink has-checked:bg-ink has-checked:text-surface has-focus-visible:ring-2 has-focus-visible:ring-ink/30"
           >
             <input
               className="sr-only"
@@ -216,8 +245,8 @@ function Question<Value extends string>({
           </label>
         ))}
       </div>
-      <label htmlFor={noteId} className="mb-2 block text-sm font-medium">
-        {step.noteLabel} <span className="font-normal text-muted">（选填）</span>
+      <label htmlFor={noteId} className="mb-1.5 block text-xs text-ink-secondary">
+        {step.noteLabel} <span className="text-muted">（选填）</span>
       </label>
       <Input
         id={noteId}
@@ -225,6 +254,7 @@ function Question<Value extends string>({
         maxLength={INTAKE_LIMITS.note}
         value={note}
         onChange={(event) => changeNote(event.target.value)}
+        className="rounded-lg border-ink/12 bg-surface"
       />
     </fieldset>
   );

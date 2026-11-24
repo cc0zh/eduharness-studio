@@ -1,23 +1,27 @@
 import { compileLesson } from './lesson-playback.js';
 
-export const transformerAttentionFlow = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 224">
-  <rect width="360" height="224" rx="12" fill="#F2F8F7"/>
-  <g fill="#D9ECEB">
-    <rect x="10" y="45" width="122" height="39" rx="7"/><rect x="10" y="101" width="122" height="39" rx="7"/>
-    <rect x="243" y="45" width="103" height="39" rx="7"/><rect x="243" y="101" width="103" height="39" rx="7"/>
-    <rect x="95" y="174" width="170" height="36" rx="7"/>
-  </g>
-  <g fill="#FDE0A6">
-    <rect x="155" y="45" width="65" height="39" rx="7"/><rect x="155" y="101" width="65" height="39" rx="7"/>
-  </g>
-  <path d="M132 64H151m-5 -4 5 4 -5 4M220 64H239m-5 -4 5 4 -5 4M132 120H151m-5 -4 5 4 -5 4M220 120H239m-5 -4 5 4 -5 4M309 84V92H352V158H180V171m-4 -5 4 5 4 -5M286 140V158"
-    fill="none" stroke="#0F5250" stroke-width="2" stroke-linejoin="round"/>
-  <g fill="#0F5250" font-family="sans-serif" font-size="15" text-anchor="middle">
-    <text x="70" y="29">点积匹配</text><text x="187" y="29">softmax</text><text x="294" y="29">给 V 加权</text>
-    <text x="70" y="70">Q 它 · K 小猫</text><text x="70" y="126">Q 它 · K 垫子</text>
-    <text x="187" y="70">0.8</text><text x="187" y="126">0.2</text>
-    <text x="294" y="70">0.8 × V 小猫</text><text x="294" y="126">0.2 × V 垫子</text>
-    <text x="180" y="198">相加 →「它」的新表示</text>
+export const transformerAttentionFlow = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 364 226">
+  <rect width="364" height="226" fill="#F6F3EC"/>
+  <rect x="10" y="44" width="120" height="38" fill="#FBF9F4" stroke="#1A1917" stroke-width="1.15"/>
+  <rect x="10" y="102" width="120" height="38" fill="#EFECE3" stroke="#BFB6A6" stroke-width="0.95"/>
+  <rect x="156" y="44" width="64" height="38" fill="#F3E4DE" stroke="#A84428" stroke-width="1.4"/>
+  <rect x="156" y="102" width="64" height="38" fill="#EFECE3" stroke="#BFB6A6" stroke-width="0.95"/>
+  <rect x="246" y="44" width="106" height="38" fill="#FBF9F4" stroke="#1A1917" stroke-width="1.15"/>
+  <rect x="246" y="102" width="106" height="38" fill="#EFECE3" stroke="#BFB6A6" stroke-width="0.95"/>
+  <rect x="92" y="176" width="180" height="36" fill="#1A1917"/>
+  <path d="M130 63H152m-5 -4 5 4 -5 4M220 63H242m-5 -4 5 4 -5 4M312 82V94H356V158H182V173m-4 -5 4 5 4 -5" fill="none" stroke="#A84428" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M130 121H152m-4 -3.5 4 3.5 -4 3.5M220 121H242m-4 -3.5 4 3.5 -4 3.5M294 140V158" fill="none" stroke="#827B71" stroke-width="1.2" stroke-dasharray="4 3" stroke-linejoin="round"/>
+  <g fill="#1A1917" font-family="sans-serif" font-size="13" text-anchor="middle">
+    <text x="70" y="28" fill="#827B71">点积匹配</text>
+    <text x="188" y="28" fill="#827B71">softmax</text>
+    <text x="299" y="28" fill="#827B71">给 V 加权</text>
+    <text x="70" y="68">Q 它 · K 小猫</text>
+    <text x="70" y="126" fill="#4D4943">Q 它 · K 垫子</text>
+    <text x="188" y="68" fill="#A84428" font-size="14">0.8</text>
+    <text x="188" y="126" fill="#827B71">0.2</text>
+    <text x="299" y="68">0.8 × V 小猫</text>
+    <text x="299" y="126" fill="#4D4943">0.2 × V 垫子</text>
+    <text x="182" y="199" fill="#FBF9F4" font-size="13">相加 →「它」的新表示</text>
   </g>
 </svg>`;
 
