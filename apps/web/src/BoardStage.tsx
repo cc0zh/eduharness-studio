@@ -1,6 +1,9 @@
 import { type DepthTag, sanitizeSvg } from '@eduharness-studio/engine';
 import { ChevronLeft, ChevronRight, Network } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import { BoardFormula } from './BoardFormula';
+import { EvidenceLink } from './EvidenceLink';
+import type { EvidenceView } from './lesson-evidence';
 import type { BoardCard, BoardMark, BoardPage } from './lesson-playback';
 
 const depthLabel: Record<DepthTag, string> = {
@@ -15,18 +18,28 @@ export function BoardStage({
   pages,
   pageIndex,
   onPageChange,
+  evidence,
 }: {
   pages: readonly BoardPage[];
   pageIndex: number;
   onPageChange: (index: number) => void;
+  evidence?: EvidenceView;
 }) {
   const page = pages[pageIndex];
+  const stage = useRef<HTMLElement>(null);
+  const target = evidence?.target;
+  useEffect(() => {
+    if (!target) return;
+    const card = stage.current?.querySelector('[data-evidence-primary="true"]');
+    (card ?? stage.current)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [target]);
   const latest = pages.length - 1;
   const pageButton =
     'grid size-9 place-items-center rounded-lg border border-border bg-white text-primary hover:bg-primary-soft/50 focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-40';
   return (
     <section
       aria-label="白板画布"
+      ref={stage}
       className="dot-grid-canvas min-h-[48vh] rounded-[1.75rem] border border-slate-200/80 p-4 sm:p-6 lg:p-8"
     >
       <div className="mx-auto max-w-6xl">
@@ -91,7 +104,7 @@ export function BoardStage({
               {page.cards
                 .filter(({ action }) => action.column === number)
                 .map((card) => (
-                  <BoardCardView key={card.action.card_id} card={card} />
+                  <BoardCardView key={card.action.card_id} card={card} evidence={evidence} />
                 ))}
             </section>
           ))}
@@ -101,22 +114,41 @@ export function BoardStage({
   );
 }
 
-function BoardCardView({ card }: { card: BoardCard }) {
+function BoardCardView({ card, evidence }: { card: BoardCard; evidence?: EvidenceView }) {
   const { action, marks } = card;
   const title = action.title ?? '板书';
   const depth = action.depth ?? 'intuition';
   const svg = action.type === 'graph' ? sanitizeSvg(action.svg_markup) : undefined;
+  const anchors = new Map<number, number>();
+  if (evidence)
+    for (const { step_id } of [action, ...marks]) {
+      const number = evidence.numbersByStep.get(step_id);
+      if (number !== undefined && !anchors.has(number)) anchors.set(number, step_id);
+    }
   return (
     <article
       data-board-card={action.card_id}
       data-card-kind={action.type}
-      className="rounded-2xl border border-slate-200/90 bg-white/95 p-4 shadow-[0_8px_28px_-18px_rgba(15,82,80,0.3)] sm:p-5"
+      data-evidence-selected={evidence?.target?.cardIds.includes(action.card_id) || undefined}
+      data-evidence-primary={evidence?.target?.firstCard === action.card_id || undefined}
+      className="scroll-m-1 rounded-2xl border border-slate-200/90 bg-white/95 p-4 shadow-[0_8px_28px_-18px_rgba(15,82,80,0.3)] data-[evidence-selected=true]:border-amber-500 data-[evidence-selected=true]:bg-amber-50 data-[evidence-selected=true]:ring-2 data-[evidence-selected=true]:ring-inset data-[evidence-selected=true]:ring-highlight sm:p-5"
     >
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="rounded-full bg-primary-soft px-2.5 py-1 text-[11px] font-semibold text-primary">
           {depthLabel[depth]}
         </span>
         {action.type === 'graph' && <span className="text-xs font-medium text-muted">示意图</span>}
+        {evidence && anchors.size > 0 && (
+          <div className="ml-auto flex flex-wrap gap-1">
+            {[...anchors].map(([number, step]) => (
+              <EvidenceLink
+                key={number}
+                number={number}
+                onClick={() => evidence.select(number, step)}
+              />
+            ))}
+          </div>
+        )}
       </div>
       <h2 className="mt-3 text-base font-bold leading-snug text-ink">{title}</h2>
       {action.type === 'board' ? (

@@ -36,7 +36,7 @@ test('an active-session read keeps one SQLite snapshot across a concurrent worke
     course.id,
     lesson.id,
     course.topic,
-    offlineLesson(course, lesson),
+    () => offlineLesson(course, lesson),
     false,
   );
   assert.ok(started.snapshot && !('error' in started.snapshot));

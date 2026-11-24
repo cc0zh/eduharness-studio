@@ -259,6 +259,8 @@ export function useLessonPlayback(lessonPath: string) {
     generation,
     played: session?.playedActions ?? [],
     records: session?.records ?? [],
+    pendingBeat: nextBeat,
+    saving: writing,
     paused,
     end,
     error,

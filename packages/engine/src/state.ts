@@ -2,6 +2,13 @@ import type { Action } from './protocol.js';
 
 export type TeachingState = 'intake' | 'diagnose' | 'scaffold' | 'handoff' | 'verify' | 'completed';
 
+export interface TeachingTransition {
+  from: TeachingState | null;
+  to: TeachingState;
+  generation: number;
+  step_id: number;
+}
+
 const ALLOWED_TRANSITIONS: Record<TeachingState, readonly TeachingState[]> = {
   intake: ['diagnose'],
   diagnose: ['scaffold'],

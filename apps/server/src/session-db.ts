@@ -1,5 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { LessonRecord, LessonScript, TeachingState } from '@eduharness-studio/engine';
+import type {
+  LessonRecord,
+  LessonScript,
+  LessonTraceSpan,
+  TeachingState,
+  TeachingTransition,
+} from '@eduharness-studio/engine';
 
 const sessionVersion = 1;
 const currentFormat = `json_extract(snapshot_json, '$.version') = ${sessionVersion}`;
@@ -64,6 +70,10 @@ export function sessionDatabase(db: DatabaseSync) {
     SELECT payload_json FROM session_events WHERE session_id = ?
       AND kind IN ('subtitle', 'answer', 'interrupt') ORDER BY id
   `);
+  const diagnosticEvents = db.prepare(`
+    SELECT kind, payload_json FROM session_events WHERE session_id = ?
+      AND kind IN ('state', 'trace') ORDER BY id
+  `);
   const rotated = db.prepare(`
     SELECT 1 FROM session_events WHERE session_id = ? AND kind = 'interrupt'
       AND json_extract(payload_json, '$.previous_generation') = ? LIMIT 1
@@ -125,6 +135,16 @@ export function sessionDatabase(db: DatabaseSync) {
       return records
         .all(id)
         .map(({ payload_json }) => JSON.parse(String(payload_json)) as LessonRecord);
+    },
+    diagnostics(id: string) {
+      const transitions: TeachingTransition[] = [];
+      const spans: LessonTraceSpan[] = [];
+      for (const { kind, payload_json } of diagnosticEvents.all(id)) {
+        const payload: unknown = JSON.parse(String(payload_json));
+        if (kind === 'state') transitions.push(payload as TeachingTransition);
+        else spans.push(payload as LessonTraceSpan);
+      }
+      return { transitions, spans };
     },
     wasInterrupted(id: string, generation: number) {
       return Boolean(rotated.get(id, generation));

@@ -1,13 +1,22 @@
-import { Pause, Play, Send, SkipForward } from 'lucide-react';
+import { Pause, Play, Send, SkipForward, X } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
+import { EvidenceLink } from './EvidenceLink';
 import type { useLessonPlayback } from './useLessonPlayback';
 
 export function PlaybackControls({
   playback,
   caption,
+  captionEvidence,
 }: {
   playback: ReturnType<typeof useLessonPlayback>;
   caption: string;
+  captionEvidence?: {
+    number?: number;
+    selected: boolean;
+    contextual: boolean;
+    select: (number: number) => void;
+    clear: () => void;
+  };
 }) {
   const [interruption, setInterruption] = useState('');
   const status =
@@ -52,8 +61,40 @@ export function PlaybackControls({
         </div>
       )}
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 sm:flex-nowrap">
-        <div className="basis-full sm:min-w-0 sm:flex-1" aria-live="polite">
-          <p className="text-[11px] font-semibold tracking-wide text-primary">课堂字幕</p>
+        <div
+          data-caption-evidence={captionEvidence?.selected || undefined}
+          className="basis-full rounded-md data-[caption-evidence=true]:bg-amber-50 data-[caption-evidence=true]:px-2 data-[caption-evidence=true]:ring-1 data-[caption-evidence=true]:ring-amber-400 sm:min-w-0 sm:flex-1"
+          aria-live="polite"
+        >
+          <div className="flex flex-wrap items-center gap-1.5">
+            <p className="text-[11px] font-semibold tracking-wide text-primary">
+              {captionEvidence?.selected
+                ? captionEvidence.contextual
+                  ? '关联字幕'
+                  : '证据字幕'
+                : '课堂字幕'}
+            </p>
+            {captionEvidence?.number !== undefined && (
+              <EvidenceLink
+                number={captionEvidence.number}
+                onClick={() => {
+                  if (captionEvidence.number !== undefined)
+                    captionEvidence.select(captionEvidence.number);
+                }}
+              />
+            )}
+            {captionEvidence?.selected && (
+              <button
+                type="button"
+                aria-label="返回实时字幕"
+                title="返回实时字幕"
+                onClick={captionEvidence.clear}
+                className="ml-auto grid size-6 place-items-center rounded-md text-primary hover:bg-highlight focus-visible:outline-2 focus-visible:outline-primary"
+              >
+                <X aria-hidden="true" className="size-3.5" />
+              </button>
+            )}
+          </div>
           <p
             data-subtitle="true"
             className="mt-0.5 line-clamp-2 text-sm leading-relaxed text-slate-700"

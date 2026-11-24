@@ -1,4 +1,11 @@
-import { type LessonEnd, type LessonMetadata, offlineLesson } from '@eduharness-studio/engine';
+import {
+  evaluateOfflineQuality,
+  type LessonEnd,
+  type LessonMetadata,
+  offlineLesson,
+  projectPlayedDialogue,
+  type SessionQuality,
+} from '@eduharness-studio/engine';
 import { Type } from '@sinclair/typebox';
 import { type Context, Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
@@ -7,6 +14,7 @@ import type { StudioDatabase } from './db.js';
 import { checked, RouteIdSchema } from './request-validation.js';
 import {
   AnswerSchema,
+  EmptyBody,
   InterruptSchema,
   ProgressSchema,
   ResumeSchema,
@@ -67,12 +75,36 @@ export function createLessonRoutes(courses: CourseStore, database: StudioDatabas
         params.courseId,
         params.lessonId,
         result.course.topic,
-        offlineLesson(result.course, result.lesson),
+        () => offlineLesson(result.course, result.lesson),
         c.req.valid('json').restart === true,
       );
       return 'error' in started
         ? c.json(started, 410)
         : c.json(started.snapshot, started.created ? 201 : 200);
+    },
+  );
+
+  routes.get(`${SESSION_PATH}/xray`, checked('param', SessionParams), (c) => {
+    const inspection = sessions.inspect(c.req.valid('param').sessionId);
+    c.header('Cache-Control', 'no-store');
+    return inspection ? c.json(inspection.trace) : c.json({ error: 'session_not_found' }, 404);
+  });
+
+  routes.post(
+    `${SESSION_PATH}/quality`,
+    checked('param', SessionParams),
+    checked('json', EmptyBody),
+    (c) => {
+      const inspection = sessions.inspect(c.req.valid('param').sessionId);
+      if (!inspection) return c.json({ error: 'session_not_found' }, 404);
+      const { generation, last_played_step_id, playedActions, records } = inspection.snapshot;
+      const dialogue = projectPlayedDialogue(playedActions, records);
+      return c.json({
+        generation,
+        last_played_step_id,
+        dialogue,
+        ...evaluateOfflineQuality(dialogue, playedActions, records, inspection.trace.transitions),
+      } satisfies SessionQuality);
     },
   );
 

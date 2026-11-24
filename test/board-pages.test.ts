@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { demoCourses, offlineLesson } from '@eduharness-studio/engine';
+import {
+  demoCourses,
+  type LessonRecord,
+  offlineLesson,
+  projectPlayedDialogue,
+} from '@eduharness-studio/engine';
+import { locateEvidence } from '../apps/web/src/lesson-evidence.js';
 import {
   findBoardPage,
   projectBoard,
@@ -71,4 +77,28 @@ test('highlights on a new page still mark cards retained on a historical page', 
     ),
   );
   assert.equal(findBoardPage(pages, { card_id: 'alarm-setup' }), 0);
+});
+
+test('a specific subtitle anchors its own page even when its teacher turn continues across pages', () => {
+  const actions = offlineLesson(demoCourses[0], demoCourses[0].units[0].lessons[0]).actions.slice(
+    0,
+    22,
+  );
+  const records: LessonRecord[] = [8, 16].map((ask_step_id) => ({
+    kind: 'answer',
+    generation: 1,
+    ask_step_id,
+    text: '学生作答',
+  }));
+  const dialogue = projectPlayedDialogue(actions, records);
+  const pages = projectBoard(actions);
+  assert.deepEqual(dialogue.turns[4].evidenceStepIds, [17, 18, 19, 20, 21, 22]);
+  const opening = locateEvidence(dialogue, 5, actions, pages, 17);
+  assert.equal(opening?.pageIndex, 0);
+  assert.equal(opening?.firstCard, 'bayes-rule');
+  assert.equal(opening?.caption?.step_id, 17);
+  const next = locateEvidence(dialogue, 5, actions, pages, 21);
+  assert.equal(next?.pageIndex, 1);
+  assert.equal(next?.firstCard, 'changed-base-rate');
+  assert.equal(next?.caption?.step_id, 21);
 });

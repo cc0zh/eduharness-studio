@@ -25,11 +25,26 @@ export {
   readLessonGeneration,
   validateLessonScript,
 } from './lesson-playback.js';
+export {
+  evaluateOfflineQuality,
+  type OfflineQualityReport,
+  type SessionQuality,
+} from './offline-gate.js';
+export {
+  emptyOfflineAnswers,
+  OFFLINE_DIMENSION_IDS,
+  OFFLINE_DIMENSIONS,
+  OFFLINE_QUESTION_IDS,
+  type OfflineQuestion,
+  scoreOfflineAnswers,
+} from './offline-rubric.js';
 export { offlineLesson } from './offline-scripts.js';
 export {
   type DialogueEvent,
+  type PlayedDialogue,
   type PublicDialogueTurn,
   projectActionsToPublicDialogue,
+  projectPlayedDialogue,
 } from './projection.js';
 export {
   type Action,
@@ -64,9 +79,11 @@ export type {
   InterruptIntent,
   LessonEnd,
   LessonRecord,
+  LessonTraceSpan,
   PlaybackProgressResult,
   PlaybackWriteReceipt,
   SessionSnapshot,
+  SessionTrace,
 } from './session-protocol.js';
 export {
   LessonEndSchema,
@@ -79,6 +96,7 @@ export {
   type InterruptResult,
   stateAfterBeat,
   type TeachingState,
+  type TeachingTransition,
   truncateOnInterrupt,
 } from './state.js';
 export { sanitizeSvg } from './static-svg.js';

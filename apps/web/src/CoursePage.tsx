@@ -9,14 +9,20 @@ const LessonWhiteboard = lazy(() =>
   import('./LessonWhiteboard').then(({ LessonWhiteboard }) => ({ default: LessonWhiteboard })),
 );
 
-export function CoursePage({ courseId, lessonId }: { courseId: string; lessonId?: string }) {
+type XrayControls = { xrayOpen: boolean; closeXray: () => void };
+
+export function CoursePage({
+  courseId,
+  lessonId,
+  ...xray
+}: { courseId: string; lessonId?: string } & XrayControls) {
   const { data: course, error, retry } = useRead<CourseBlueprint>(coursePath(courseId));
 
   return (
     <main className="dot-grid-canvas min-h-[calc(100dvh-4rem)]">
       {course ? (
         lessonId ? (
-          <Whiteboard course={course} lessonId={lessonId} />
+          <Whiteboard course={course} lessonId={lessonId} {...xray} />
         ) : (
           <Blueprint course={course} />
         )
@@ -122,7 +128,11 @@ function LessonRow({
   );
 }
 
-function Whiteboard({ course, lessonId }: { course: CourseBlueprint; lessonId: string }) {
+function Whiteboard({
+  course,
+  lessonId,
+  ...xray
+}: { course: CourseBlueprint; lessonId: string } & XrayControls) {
   const unit = course.units.find((unit) => unit.lessons.some(({ id }) => id === lessonId));
   const lesson = unit?.lessons.find(({ id }) => id === lessonId);
   const title = !lesson
@@ -140,6 +150,7 @@ function Whiteboard({ course, lessonId }: { course: CourseBlueprint; lessonId: s
       }
     >
       <LessonWhiteboard
+        {...xray}
         key={`${course.id}:${lessonId}`}
         title={lesson.title}
         summary={lesson.summary}

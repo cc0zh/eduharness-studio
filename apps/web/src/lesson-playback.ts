@@ -20,6 +20,7 @@ export function shouldFollowLatestPage(
 
 export type BoardCardAction = Extract<Action, { type: 'board' | 'graph' }>;
 export interface BoardMark {
+  step_id: number;
   target: string;
   style: 'highlight' | 'circle';
 }
@@ -59,7 +60,12 @@ export function projectBoard(actions: readonly Action[]): BoardPage[] {
       const card = pages
         .flatMap(({ cards }) => cards)
         .find(({ action: cardAction }) => cardAction.card_id === action.card_id);
-      if (card) card.marks.push({ target: action.target_text, style: action.style });
+      if (card)
+        card.marks.push({
+          step_id: action.step_id,
+          target: action.target_text,
+          style: action.style,
+        });
     }
     page.stepIds.push(action.step_id);
   }
@@ -80,8 +86,9 @@ export function findBoardPage(
 }
 
 export function latestCaption(actions: readonly Action[]) {
-  return actions.reduce(
-    (caption, action) => (action.type === 'speak' ? action.text : caption),
-    '老师正在整理白板…',
-  );
+  for (let index = actions.length - 1; index >= 0; index--) {
+    const action = actions[index];
+    if (action.type === 'speak') return action;
+  }
+  return undefined;
 }

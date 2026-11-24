@@ -13,7 +13,7 @@ const steps = [
   },
   { name: 'Web production build', cmd: process.execPath, args: [viteBin, 'build', 'apps/web'] },
   {
-    name: 'Tests (unit + gates + E2E smoke)',
+    name: 'Tests (unit + gates + HTTP smoke + Playwright)',
     cmd: process.execPath,
     args: ['scripts/run-tests.mjs'],
   },

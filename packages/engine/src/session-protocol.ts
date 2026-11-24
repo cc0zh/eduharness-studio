@@ -1,6 +1,7 @@
 import { type Static, Type } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
-import { ActionSchema } from './protocol.js';
+import { type Action, ActionSchema } from './protocol.js';
+import type { TeachingTransition } from './state.js';
 
 export type InterruptIntent = 'explain' | 'answer-request' | 'continue';
 
@@ -101,3 +102,19 @@ export type PlaybackProgressResult =
   | {
       error: 'session_not_found' | 'stale_generation' | 'unexpected_step';
     };
+
+export interface LessonTraceSpan {
+  kind: 'offline' | 'tool';
+  name: string;
+  durationMs: number;
+  generation: number;
+  step_id: number;
+}
+
+export interface SessionTrace {
+  generation: number;
+  last_played_step_id: number;
+  queued: Pick<Action, 'step_id' | 'type'>[];
+  transitions: TeachingTransition[];
+  spans: LessonTraceSpan[];
+}

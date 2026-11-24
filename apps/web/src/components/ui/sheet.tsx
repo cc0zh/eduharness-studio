@@ -9,12 +9,21 @@ export const SheetClose = DialogPrimitive.Close;
 
 export interface SheetPopupProps extends DialogPrimitive.Popup.Props {
   side?: 'left' | 'right';
+  showBackdrop?: boolean;
 }
 
-export function SheetPopup({ className, side = 'right', children, ...props }: SheetPopupProps) {
+export function SheetPopup({
+  className,
+  side = 'right',
+  showBackdrop = true,
+  children,
+  ...props
+}: SheetPopupProps) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Backdrop className="fixed inset-0 z-40 bg-[#0f172a]/20 transition-opacity data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
+      {showBackdrop && (
+        <DialogPrimitive.Backdrop className="fixed inset-0 z-40 bg-[#0f172a]/20 transition-opacity data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
+      )}
       <DialogPrimitive.Popup
         className={cn(
           'fixed inset-y-0 z-50 flex w-80 max-w-[90vw] flex-col bg-white shadow-xl transition-transform outline-none',

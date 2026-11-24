@@ -10,6 +10,7 @@
 ```bash
 # 安装依赖
 npm ci
+npx playwright install chromium
 
 # 一键运行全套门禁（静态门禁 + 前端构建 + 全部测试）
 npm run check
@@ -25,6 +26,7 @@ npm run lint
 npm run format
 npm run typecheck
 npm test
+npm run test:e2e
 
 # 同时启动本地后端（3001）与前端（5173）
 npm run dev
@@ -34,6 +36,9 @@ npm run dev
 
 - 可通过环境变量覆盖默认端口与 SQLite 路径：`PORT=3001`、`WEB_PORT=5173`、`STUDIO_DB_PATH=data/studio.sqlite`（测试可使用 `:memory:`）。
 - 本地开发无需 `.env` 与 API Key；`data/` 目录已被 `.gitignore` 忽略。
+- Playwright 仅为开发依赖：真实 Chromium 验收课堂交互，不进入部署包。E2E 自启随机端口和临时 SQLite；CI 同时安装 Chromium 的系统依赖。
+- 复验开发启动路径时，以 `STUDIO_E2E_DEV=1` 运行 `npm run test:e2e`；可选 `STUDIO_E2E_SCREENSHOTS` 指定截图目录。
+- X-Ray 离线质检沿用 `eduharness` 工作尺子 `e1-binary-v3` 的 19 题与汇总口径；本地规则只近似判断可观测证据，不等同模型裁判。
 
 ## 常见排障
 

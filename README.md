@@ -20,6 +20,7 @@
 
 ```bash
 npm ci
+npx playwright install chromium
 npm run check
 npm run dev
 ```

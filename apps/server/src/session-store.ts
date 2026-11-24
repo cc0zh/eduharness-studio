@@ -5,11 +5,14 @@ import {
   type LessonBeat,
   type LessonRecord,
   type LessonScript,
+  type LessonTraceSpan,
   type PlaybackWriteReceipt,
   readLessonBeat,
   type SessionSnapshot,
+  type SessionTrace,
   stateAfterBeat,
   type TeachingState,
+  type TeachingTransition,
   validateLessonScript,
 } from '@eduharness-studio/engine';
 import type { Static } from '@sinclair/typebox';
@@ -41,7 +44,7 @@ export function createSessionStore({ db }: StudioDatabase) {
       to,
       generation: session.queue.generation,
       step_id: session.lastPlayed,
-    });
+    } satisfies TeachingTransition);
     session.state = to;
   }
 
@@ -55,6 +58,16 @@ export function createSessionStore({ db }: StudioDatabase) {
       state,
       askStep: queue.askStep,
     };
+  }
+
+  function traceOffline(session: StoredSession, name: string, durationMs: number) {
+    store.append(session.id, 'trace', {
+      kind: 'offline',
+      name,
+      durationMs,
+      generation: session.queue.generation,
+      step_id: session.lastPlayed,
+    } satisfies LessonTraceSpan);
   }
 
   function streamEnd(id: string, kind: 'done' | 'interrupted' | 'superseded'): BeatPoll {
@@ -142,6 +155,21 @@ export function createSessionStore({ db }: StudioDatabase) {
   }
 
   return {
+    inspect(id: string) {
+      return store.readTransaction(() => {
+        const session = store.load(id);
+        if (!session) return undefined;
+        const trace: SessionTrace = {
+          generation: session.queue.generation,
+          last_played_step_id: session.lastPlayed,
+          queued: session.queue.script.actions
+            .filter(({ step_id }) => step_id > session.lastPlayed)
+            .map(({ step_id, type }) => ({ step_id, type })),
+          ...store.diagnostics(id),
+        };
+        return { trace, snapshot: snapshot(session) };
+      });
+    },
     active(courseId: string, lessonId: string) {
       return store.readTransaction(() => {
         const session = store.latest(courseId, lessonId);
@@ -158,7 +186,7 @@ export function createSessionStore({ db }: StudioDatabase) {
       courseId: string,
       lessonId: string,
       topic: string,
-      script: LessonScript,
+      buildScript: () => LessonScript,
       restart: boolean,
     ) {
       return store.transaction(() => {
@@ -167,15 +195,25 @@ export function createSessionStore({ db }: StudioDatabase) {
         if (!previous && !restart && store.hasUnversioned(courseId, lessonId)) {
           return { error: 'session_retired' as const };
         }
+        const began = performance.now();
+        const script = buildScript();
         if (!validateLessonScript(script)) throw new Error('Invalid lesson script');
+        const duration = performance.now() - began;
         if (previous) {
           supersede(previous);
           previous.queue.retired = true;
           store.save(previous);
         }
         const session = store.insert(randomUUID(), courseId, lessonId, topic, script);
-        store.append(session.id, 'state', { from: null, to: 'intake', generation: 0, step_id: 0 });
-        return { created: true, snapshot: claim(session) };
+        store.append(session.id, 'state', {
+          from: null,
+          to: 'intake',
+          generation: 0,
+          step_id: 0,
+        } satisfies TeachingTransition);
+        const started = claim(session);
+        traceOffline(session, 'lesson_script', duration);
+        return { created: true, snapshot: started };
       });
     },
     resume(id: string, receipt?: Static<typeof ResumeSchema>) {
@@ -282,15 +320,18 @@ export function createSessionStore({ db }: StudioDatabase) {
           if ('error' in ack) return ack;
         }
         const text = input.text.trim();
+        const began = performance.now();
         const cut = buildInterruptQueue(
           queue.script,
           session.lastPlayed || null,
           text,
           queue.topic,
         );
+        const duration = performance.now() - began;
         queue.script = { ...queue.script, actions: cut.actions };
         queue.askStep = null;
         ++queue.generation;
+        traceOffline(session, 'interrupt_continuation', duration);
         transition(session, 'diagnose');
         record(session, {
           kind: 'interrupt',
