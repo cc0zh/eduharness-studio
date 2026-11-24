@@ -5,7 +5,7 @@ import type { LessonBasis, TeacherTurnOutput, TeacherTurnTrace } from './teacher
 
 export type TeacherInput =
   | { kind: 'opening' }
-  | { kind: 'answer'; ask_step_id: number; text: string; option_id?: string }
+  | { kind: 'answer'; ask_step_id: number; text: string; choice?: boolean }
   | { kind: 'interrupt'; text: string };
 
 export interface TeacherProgress {
@@ -57,7 +57,7 @@ export function effortSignal(input: TeacherInput): 'skip' | 'low' | undefined {
   ) {
     return 'skip';
   }
-  if (input.kind === 'answer' && input.option_id) return undefined;
+  if (input.kind === 'answer' && input.choice) return undefined;
   if (/^(?:1|继续(?:吧)?|直接讲(?:吧)?|嗯+|随便|continue|go on)$/.test(text)) return 'low';
   return undefined;
 }

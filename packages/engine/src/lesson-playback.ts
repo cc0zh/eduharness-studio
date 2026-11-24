@@ -19,6 +19,7 @@ export type LessonMetadata = Pick<LessonScript, 'keypoints'>;
 
 export function validateLessonScript(input: unknown): input is LessonScript {
   if (!Value.Check(LessonScriptSchema, input)) return false;
+  if (new Set(input.keypoints.map(({ id }) => id)).size !== input.keypoints.length) return false;
   const cards = new Set<string>();
   const boardCards = new Set<string>();
   const pages = new Set(['opening']);

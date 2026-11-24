@@ -194,6 +194,61 @@ function respond(context) {
   mock.setResponses([respond]);
   const message = context.messages.findLast(({ role }) => role === 'user');
   const prompt = typeof message?.content === 'string' ? message.content : '';
+  if (prompt.includes('Create a specific, concise')) {
+    return fauxAssistantMessage(
+      fauxToolCall('emit_result', {
+        value: {
+          title: '奇偶性与配对 · 学习路线',
+          units: [
+            {
+              title: '先建立配对直觉',
+              lessons: [
+                { title: '奇偶性', summary: '从成对物件辨认奇偶性。', depth: 'intuition' },
+                { title: '换个数迁移', summary: '把配对方法迁移到新数量。', depth: 'application' },
+              ],
+            },
+          ],
+        },
+      }),
+      { stopReason: 'toolUse' },
+    );
+  }
+  if (prompt.includes('Prepare one concise')) {
+    return fauxAssistantMessage(
+      fauxToolCall('emit_result', {
+        value: {
+          keypoints: [
+            {
+              id: 'pairing',
+              title: '两两配对',
+              objective: '每两个物件组成一对。',
+              depth: 'intuition',
+            },
+            {
+              id: 'odd-even',
+              title: '辨认剩余',
+              objective: '判断成对后是否有剩余。',
+              depth: 'definition',
+            },
+          ],
+          opening: response(
+            { afterStep: 0 },
+            {
+              status: 'opening',
+              summary: '先观察怎样分组。',
+              strategy: '从具体物件建立直觉。',
+              title: '小物件如何配对',
+              content: '先摆出五块积木，试着每两块配成一对。',
+              caption: '把积木排在桌上，每组只放两块。',
+              question: '五块积木每两块一组，最后会怎样？',
+              options: testOptions,
+            },
+          ),
+        },
+      }),
+      { stopReason: 'toolUse' },
+    );
+  }
   const toolCalls = context.messages.filter(
     (entry) => entry.role === 'toolResult' && entry.toolName === 'mock_calc',
   ).length;

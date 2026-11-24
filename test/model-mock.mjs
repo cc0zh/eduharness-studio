@@ -6,8 +6,19 @@ export const modelMockList = [
   { id: 'loop/reasoner:v2', name: 'Loopback Reasoner' },
 ];
 
-function teacherOutput(status, afterStep) {
+function teacherOutput(status, afterStep, classroom) {
   const card = `loopback-${afterStep + 1}`;
+  const measurementLesson = String(classroom?.topic ?? '').includes('温度测量');
+  const prompt = measurementLesson ? '报警后的概率应该先看哪一组？' : '两组合并后共有多少？';
+  const options = measurementLesson
+    ? [
+        { id: 'low', label: '分母只包含已经报警的样本' },
+        { id: 'high', label: '所有带标签的样本' },
+      ]
+    : [
+        { id: 'four', label: '4 个' },
+        { id: 'five', label: '5 个' },
+      ];
   return {
     diagnosis: {
       status,
@@ -28,11 +39,8 @@ function teacherOutput(status, afterStep) {
         type: 'ask',
         card_id: `${card}-ask`,
         mode: 'choice',
-        prompt: '两组合并后共有多少？',
-        options: [
-          { id: 'four', label: '4 个' },
-          { id: 'five', label: '5 个' },
-        ],
+        prompt,
+        options,
       },
     ],
   };
@@ -51,7 +59,111 @@ function teacherContext(body) {
   }
 }
 
-export async function startModelMock(t, { teacher = false } = {}) {
+function modelCourse() {
+  return {
+    title: '测量数据的学习路线',
+    units: [
+      {
+        title: '先读懂观测',
+        lessons: [
+          { title: '先看一条记录', summary: '区分读数与测量对象。', depth: 'intuition' },
+          { title: '重复测量与噪声', summary: '用多次读数判断波动。', depth: 'definition' },
+        ],
+      },
+      {
+        title: '再检验误差',
+        lessons: [
+          { title: '误差如何传播', summary: '追踪多个测量误差。', depth: 'derivation' },
+          { title: '向新场景迁移', summary: '比较不同测量流程。', depth: 'application' },
+        ],
+      },
+    ],
+  };
+}
+
+function modelLesson() {
+  const label = '分母只包含已经报警的样本';
+  return {
+    keypoints: [
+      {
+        id: 'observed-sample',
+        title: '观察样本',
+        objective: '区分样本读数与真实状态。',
+        depth: 'intuition',
+      },
+      {
+        id: 'noise-range',
+        title: '辨认波动',
+        objective: '说明重复测量的误差范围。',
+        depth: 'definition',
+      },
+    ],
+    basis: {
+      objective: '利用重复测量辨认噪声，不把单次读数当作规律。',
+      examples: ['连续三次温度读数'],
+      misconceptions: ['将样本波动误认成真实变化'],
+    },
+    opening: {
+      diagnosis: {
+        status: 'opening',
+        summary: '先圈定观测集合。',
+        strategy: '从已经观测到的样本开始。',
+      },
+      actions: [
+        {
+          type: 'board',
+          column: 1,
+          card_id: 'observed-sample',
+          content: '先只看已观测的样本，再判断读数代表什么。',
+        },
+        { type: 'speak', text: '一个读数足够说明真实规律吗？' },
+        {
+          type: 'highlight',
+          card_id: 'observed-sample',
+          target_text: '已观测的样本',
+          style: 'circle',
+        },
+        {
+          type: 'ask',
+          card_id: 'observed-sample-ask',
+          mode: 'choice',
+          prompt: '报警后的概率应该先看哪一组？',
+          options: [
+            { id: 'low', label },
+            { id: 'high', label: '所有带标签的样本' },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+function teacherAnswer(classroom) {
+  const label = classroom.input.text;
+  return {
+    diagnosis: {
+      status: 'clarifying',
+      summary: `按选项文字核对：${label}`,
+      strategy: '沿着学生指出的样本范围继续推理。',
+    },
+    actions: [
+      { type: 'board', column: 1, card_id: 'label-authority-board', content: label },
+      { type: 'speak', text: '你指出了这一组样本，我们据此继续核对。' },
+      { type: 'highlight', card_id: 'label-authority-board', target_text: '样本', style: 'circle' },
+      {
+        type: 'ask',
+        card_id: 'label-authority-ask',
+        mode: 'open',
+        prompt: '下一步应统计哪一部分？',
+      },
+    ],
+  };
+}
+
+export async function startModelMock(
+  t,
+  { teacher = false, courses = true, unlockDelayMs = 0 } = {},
+) {
   const calls = [];
   const mock = createServer(async (req, res) => {
     calls.push({ path: req.url, method: req.method, authorization: req.headers.authorization });
@@ -130,40 +242,72 @@ export async function startModelMock(t, { teacher = false } = {}) {
         const hasCalcVerify = body.tools?.some(({ function: tool }) => tool.name === 'calc_verify');
         const hasToolResult = body.messages.some(({ role }) => role === 'tool');
         const classroom = teacher ? teacherContext(body) : undefined;
+        const prompt = body.messages.find(({ role }) => role === 'user')?.content;
         const corrected = body.messages.some(
           ({ role, content }) =>
             role === 'user' && String(content).includes('上一份回合被护栏拦截'),
         );
-        const functionCall =
+        let functionCall;
+        if (
+          courses &&
+          typeof prompt === 'string' &&
+          prompt.includes('Create a specific, concise')
+        ) {
+          functionCall = {
+            name: 'emit_result',
+            arguments: JSON.stringify({ value: modelCourse() }),
+          };
+        } else if (
+          courses &&
+          typeof prompt === 'string' &&
+          prompt.includes('Prepare one concise')
+        ) {
+          if (unlockDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, unlockDelayMs));
+          functionCall = {
+            name: 'emit_result',
+            arguments: JSON.stringify({ value: modelLesson() }),
+          };
+        } else if (
+          teacher &&
+          classroom?.input?.kind === 'answer' &&
+          String(classroom.topic).includes('温度测量')
+        ) {
+          functionCall = {
+            name: 'emit_result',
+            arguments: JSON.stringify({ value: teacherAnswer(classroom) }),
+          };
+        } else if (
           teacher &&
           classroom?.input?.kind === 'opening' &&
           hasCalcVerify &&
           !hasToolResult &&
           !corrected
-            ? {
-                name: 'calc_verify',
-                arguments: JSON.stringify({ expression: '2 + 3' }),
-              }
-            : teacher
-              ? {
-                  name: 'emit_result',
-                  arguments: JSON.stringify({
-                    value: teacherOutput(
-                      classroom?.input?.kind === 'opening'
-                        ? 'opening'
-                        : corrected
-                          ? 'clarifying'
-                          : 'mastered',
-                      Number(classroom?.afterStep ?? 0),
-                    ),
-                  }),
-                }
-              : {
-                  name: 'emit_result',
-                  arguments: JSON.stringify({
-                    value: 'loopback-ok',
-                  }),
-                };
+        ) {
+          functionCall = {
+            name: 'calc_verify',
+            arguments: JSON.stringify({ expression: '2 + 3' }),
+          };
+        } else if (teacher) {
+          functionCall = {
+            name: 'emit_result',
+            arguments: JSON.stringify({
+              value: teacherOutput(
+                classroom?.input?.kind === 'opening'
+                  ? 'opening'
+                  : corrected
+                    ? 'clarifying'
+                    : 'mastered',
+                Number(classroom?.afterStep ?? 0),
+                classroom,
+              ),
+            }),
+          };
+        } else {
+          functionCall = {
+            name: 'emit_result',
+            arguments: JSON.stringify({ value: 'loopback-ok' }),
+          };
+        }
         res.setHeader('Content-Type', 'text/event-stream');
         const delta = {
           role: 'assistant',

@@ -75,12 +75,30 @@ export const TeacherTurnOutputSchema = turnSchema(
 export type TeacherTurnOutput = Static<typeof TeacherTurnOutputSchema>;
 export type TeacherDiagnosis = Static<typeof DiagnosisSchema>;
 
-export interface LessonBasis {
-  objective: string;
-  examples?: string[];
-  misconceptions?: string[];
-  sources?: { id: string; title: string; url?: string; snippet: string }[];
-}
+const basisText = Type.String({ minLength: 1, maxLength: 400 });
+export const LessonBasisSchema = Type.Object(
+  {
+    objective: Type.String({ minLength: 1, maxLength: 400 }),
+    examples: Type.Optional(Type.Array(basisText, { maxItems: 8 })),
+    misconceptions: Type.Optional(Type.Array(basisText, { maxItems: 8 })),
+    sources: Type.Optional(
+      Type.Array(
+        Type.Object(
+          {
+            id: Type.String({ minLength: 1, maxLength: 100 }),
+            title: Type.String({ minLength: 1, maxLength: 200 }),
+            url: Type.Optional(Type.String({ minLength: 1, maxLength: 2048 })),
+            snippet: Type.String({ minLength: 1, maxLength: 500 }),
+          },
+          strict,
+        ),
+        { maxItems: 8 },
+      ),
+    ),
+  },
+  strict,
+);
+export type LessonBasis = Static<typeof LessonBasisSchema>;
 
 export interface TeacherTurnTrace {
   generation: number;

@@ -10,6 +10,7 @@ import {
   readCurrentLessonBeat,
   readLessonBeat,
   validateActions,
+  validateLessonScript,
 } from '../src/index.js';
 
 const demos = demoCourses.map((course) => offlineLesson(course, course.units[0].lessons[0]));
@@ -89,6 +90,18 @@ test('only a played completion action advances the next keypoint', () => {
   );
   assert.equal(progress(i + 1).currentIndex, 1);
   assert.ok(progress(actions.length).keypoints.every(({ status }) => status === 'completed'));
+});
+
+test('lesson scripts reject duplicate keypoint IDs before projecting progress', () => {
+  const script = demos[0];
+  const duplicate: typeof script = {
+    ...script,
+    keypoints: script.keypoints.map((keypoint, index) =>
+      index === 1 ? { ...keypoint, id: script.keypoints[0].id } : keypoint,
+    ),
+  };
+  assert.equal(validateLessonScript(duplicate), false);
+  assert.equal(validateLessonScript(script), true);
 });
 
 test('client beat filter drops out-of-generation, repeated and invalid frames', () => {

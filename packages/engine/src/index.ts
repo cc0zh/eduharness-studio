@@ -1,4 +1,10 @@
-export { type CourseSummary, generateBlueprint, type LessonEntry } from './blueprints.js';
+export {
+  type BlueprintLessonPlan,
+  type BlueprintUnitPlan,
+  type CourseSummary,
+  generateBlueprint,
+  type LessonEntry,
+} from './blueprints.js';
 export {
   type CalcVerifyParams,
   CalcVerifyParamsSchema,
@@ -115,4 +121,9 @@ export {
   truncateOnInterrupt,
 } from './state.js';
 export { sanitizeSvg } from './static-svg.js';
-export type { LessonBasis, TeacherDiagnosis, TeacherTurnTrace } from './teacher-protocol.js';
+export {
+  type LessonBasis,
+  LessonBasisSchema,
+  type TeacherDiagnosis,
+  type TeacherTurnTrace,
+} from './teacher-protocol.js';

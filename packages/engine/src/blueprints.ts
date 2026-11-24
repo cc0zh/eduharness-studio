@@ -1,8 +1,8 @@
 import type { Foundation, IntakeAnswers, LearningGoal } from './intake.js';
 import type { CourseBlueprint, LessonRef } from './protocol.js';
 
-type LessonPlan = Pick<LessonRef, 'depth' | 'title' | 'summary'>;
-type UnitPlan = { title: string; lessons: LessonPlan[] };
+export type BlueprintLessonPlan = Pick<LessonRef, 'depth' | 'title' | 'summary'>;
+export type BlueprintUnitPlan = { title: string; lessons: BlueprintLessonPlan[] };
 
 export interface CourseSummary {
   id: string;
@@ -21,7 +21,7 @@ export interface LessonEntry {
 
 export function assembleBlueprint(
   course: Pick<CourseBlueprint, 'id' | 'title' | 'topic'>,
-  plan: UnitPlan[],
+  plan: BlueprintUnitPlan[],
 ): CourseBlueprint {
   return {
     ...course,
@@ -37,10 +37,10 @@ export function assembleBlueprint(
   };
 }
 
-function startingUnits(topic: string, foundation: Foundation, note: string): UnitPlan[] {
+function startingUnits(topic: string, foundation: Foundation, note: string): BlueprintUnitPlan[] {
   if (foundation === 'experienced') return [];
 
-  const lessons: LessonPlan[] = [
+  const lessons: BlueprintLessonPlan[] = [
     {
       title: `${topic}：从一个例子起步`,
       summary: note
@@ -59,7 +59,7 @@ function startingUnits(topic: string, foundation: Foundation, note: string): Uni
   return [{ title: foundation === 'beginner' ? '建立直觉' : '衔接已有基础', lessons }];
 }
 
-function goalUnits(goal: LearningGoal, note: string): UnitPlan[] {
+function goalUnits(goal: LearningGoal, note: string): BlueprintUnitPlan[] {
   const useNote = (summary: string) =>
     note ? `${summary} 围绕你的目标「${note}」来检验。` : summary;
   if (goal === 'understand') {

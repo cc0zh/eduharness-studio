@@ -55,7 +55,7 @@ export function createServerApp({
 
   const courses = createCourseStore(database);
   app.route('/api', createModelRoutes(modelGateway, modelFetch));
-  app.route('/api', createCourseRoutes(courses));
+  app.route('/api', createCourseRoutes(courses, modelGateway));
   app.route('/api', createLessonRoutes(courses, database, modelGateway, teacherTools));
   return app;
 }

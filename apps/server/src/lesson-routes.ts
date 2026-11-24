@@ -58,16 +58,20 @@ export function createLessonRoutes(
       .find(({ id }) => id === lessonId);
     if (!course || !lesson) return { error: 'lesson_not_found', status: 404 } as const;
     if (lesson.status === 'locked') return { error: 'lesson_locked', status: 409 } as const;
-    return { course, lesson };
+    return { course, lesson, material: courses.material(courseId, lessonId) };
   }
 
-  routes.get(LESSON_PATH, checked('param', LessonParams), (c) => {
+  routes.get(LESSON_PATH, checked('param', LessonParams), async (c) => {
     const result = resolveLesson(c.req.valid('param'));
-    return result.course
-      ? c.json({
-          keypoints: offlineLesson(result.course, result.lesson).keypoints,
-        } satisfies LessonMetadata)
-      : c.json({ error: result.error }, result.status);
+    if (!result.course) return c.json({ error: result.error }, result.status);
+    const live =
+      result.course.id !== BAYES_DEMO_ID &&
+      result.course.id !== TRANSFORMER_DEMO_ID &&
+      (await gateway.getStatus()).mode === 'live';
+    const script = live
+      ? (result.material?.script ?? offlineLesson(result.course, result.lesson))
+      : offlineLesson(result.course, result.lesson);
+    return c.json({ keypoints: script.keypoints } satisfies LessonMetadata);
   });
 
   routes.get(`${LESSON_PATH}/sessions/active`, checked('param', LessonParams), (c) => {
@@ -91,12 +95,15 @@ export function createLessonRoutes(
         params.courseId !== BAYES_DEMO_ID &&
         params.courseId !== TRANSFORMER_DEMO_ID &&
         (await gateway.getStatus()).mode === 'live';
+      const material = live ? result.material : undefined;
       const started = await sessions.start({
         ...params,
         topic: result.course.topic,
-        buildScript: () => offlineLesson(result.course, result.lesson),
+        buildScript: () => material?.script ?? offlineLesson(result.course, result.lesson),
         restart: c.req.valid('json').restart === true,
         live,
+        preplanned: Boolean(material),
+        basis: material?.basis,
       });
       return 'error' in started
         ? c.json(started, writeStatus(started.error))

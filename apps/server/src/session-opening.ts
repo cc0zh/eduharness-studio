@@ -6,7 +6,11 @@ import {
   type TeachingTransition,
   validateLessonScript,
 } from '@eduharness-studio/engine';
-import type { TeacherPlan, TeacherPlanner } from '@eduharness-studio/engine/teacher';
+import type {
+  TeacherPlan,
+  TeacherPlanner,
+  TeacherProgress,
+} from '@eduharness-studio/engine/teacher';
 import type { SessionCursor } from './session-cursor.js';
 import type { StoredSession, sessionDatabase } from './session-db.js';
 import type { createSessionLocks } from './session-lock.js';
@@ -24,6 +28,7 @@ type StartOptions = {
   buildScript: () => LessonScript;
   restart: boolean;
   live: boolean;
+  preplanned?: boolean;
   basis?: LessonBasis;
 };
 
@@ -56,13 +61,13 @@ export function createSessionOpening(
     operation: TeacherOperationLock,
     sessionOperation?: TeacherOperationLock,
   ) {
-    const { courseId, lessonId, topic, buildScript, live, basis } = options;
+    const { courseId, lessonId, topic, buildScript, live, preplanned, basis } = options;
     const id = randomUUID();
     const began = performance.now();
     let script = buildScript();
     const offlineDuration = performance.now() - began;
     let plan: TeacherPlan | undefined;
-    if (live) {
+    if (live && !preplanned) {
       plan = await planTurn(
         {
           topic,
@@ -105,6 +110,16 @@ export function createSessionOpening(
       script = { keypoints: plan.keypoints, actions: plan.actions };
     }
     if (!validateLessonScript(script)) throw new Error('Invalid lesson script');
+    const teacherProgress: TeacherProgress | undefined = plan?.ok
+      ? plan.progress
+      : live && preplanned
+        ? {
+            highWater: script.actions.at(-1)?.step_id ?? 0,
+            insertedCount: 0,
+            lowEffortStreak: 0,
+            truncatedCardIds: [],
+          }
+        : undefined;
     return store.transaction(() => {
       const current = store.latest(courseId, lessonId);
       if (
@@ -121,7 +136,7 @@ export function createSessionOpening(
         store.save(current);
       }
       const session = store.insert(id, courseId, lessonId, topic, script, {
-        teacher: plan?.ok ? plan.progress : undefined,
+        teacher: teacherProgress,
         basis,
       });
       store.append(id, 'state', {
@@ -132,7 +147,7 @@ export function createSessionOpening(
       } satisfies TeachingTransition);
       const snapshot = cursor.claim(session);
       if (plan) saveTeacherTrace(store, id, plan);
-      else traceOffline(session, 'lesson_script', offlineDuration);
+      else if (!preplanned) traceOffline(session, 'lesson_script', offlineDuration);
       return { created: true, snapshot };
     });
   }

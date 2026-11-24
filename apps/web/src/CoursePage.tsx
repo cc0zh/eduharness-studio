@@ -1,8 +1,8 @@
 import type { CourseBlueprint, LessonRef } from '@eduharness-studio/engine';
 import { ArrowLeft, ArrowRight, Check, LockKeyhole } from 'lucide-react';
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { coursePath, lessonPath, useRead } from '@/lib/courses';
+import { coursePath, errorMessage, lessonPath, request, useRead } from '@/lib/courses';
 import { EditorialSkeleton } from './EditorialSkeleton';
 
 const LessonWhiteboard = lazy(() =>
@@ -47,7 +47,42 @@ export function CoursePage({
 }
 
 function Blueprint({ course }: { course: CourseBlueprint }) {
+  const [unlocking, setUnlocking] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ lessonId: string; message: string } | null>(null);
   const lessonCount = course.units.reduce((total, unit) => total + unit.lessons.length, 0);
+
+  async function unlock(lesson: LessonRef) {
+    setUnlocking(lesson.id);
+    setFailure(null);
+    const path = lessonPath({ courseId: course.id, lessonId: lesson.id });
+    try {
+      await request(`${path}/unlock`, {});
+      window.location.assign(path);
+    } catch (error) {
+      let recovery = '解锁结果尚未确认；请刷新蓝图核对课节状态后再操作。';
+      try {
+        const current = await request<CourseBlueprint>(coursePath(course.id), undefined, {
+          cache: 'reload',
+        });
+        const currentLesson = current.units
+          .flatMap(({ lessons }) => lessons)
+          .find(({ id }) => id === lesson.id);
+        if (currentLesson && currentLesson.status !== 'locked') {
+          window.location.assign(path);
+          return;
+        }
+        recovery = '已核对课节仍处于锁定态，可以安全重试。';
+      } catch {
+        // A failed read cannot distinguish a failed unlock from a lost response.
+      }
+      setFailure({
+        lessonId: lesson.id,
+        message: `${errorMessage(error)} ${recovery}`,
+      });
+      setUnlocking(null);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-[52rem] px-5 pt-7 pb-20 sm:px-8 sm:pt-10">
       <div className="mb-8 flex items-center justify-between border-b border-border pb-3">
@@ -93,6 +128,9 @@ function Blueprint({ course }: { course: CourseBlueprint }) {
                   courseId={course.id}
                   lesson={lesson}
                   number={lessonIndex + 1}
+                  loading={unlocking === lesson.id}
+                  failure={failure?.lessonId === lesson.id ? failure.message : undefined}
+                  onUnlock={() => void unlock(lesson)}
                 />
               ))}
             </ol>
@@ -107,10 +145,16 @@ function LessonRow({
   lesson,
   courseId,
   number,
+  loading,
+  failure,
+  onUnlock,
 }: {
   lesson: LessonRef;
   courseId: string;
   number: number;
+  loading: boolean;
+  failure?: string;
+  onUnlock: () => void;
 }) {
   const locked = lesson.status === 'locked';
   return (
@@ -152,7 +196,24 @@ function LessonRow({
         </h3>
         <p className="mt-1 text-[13px] leading-relaxed text-muted">{lesson.summary}</p>
       </div>
-      {!locked && (
+      {locked ? (
+        <div className="space-y-2 sm:text-right">
+          <Button size="sm" disabled={loading} onClick={onUnlock} aria-busy={loading}>
+            {loading ? '正在生成课节…' : '解锁并进入'}
+            {!loading && <ArrowRight className="size-3.5" aria-hidden="true" />}
+          </Button>
+          {loading && (
+            <p role="status" className="text-xs text-muted">
+              正在按课程路线生成这一节，请稍候…
+            </p>
+          )}
+          {failure && (
+            <p role="alert" className="max-w-sm text-xs leading-relaxed text-accent sm:ml-auto">
+              {failure}
+            </p>
+          )}
+        </div>
+      ) : (
         <Button size="sm" render={<a href={lessonPath({ courseId, lessonId: lesson.id })} />}>
           进入白板 <ArrowRight className="size-3.5" aria-hidden="true" />
         </Button>

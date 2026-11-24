@@ -116,7 +116,7 @@ export function createTeacherFallback(
         kind: 'answer',
         ask_step_id: entry.ask_step_id,
         text: entry.text,
-        option_id: optionId,
+        choice: optionId !== undefined,
       });
       const firstLowEffort = signal === 'low' && progress.lowEffortStreak === 0;
       const actions = unavailableActions(

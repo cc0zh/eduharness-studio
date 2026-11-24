@@ -27,6 +27,14 @@ export function openStudioDatabase(dbPath: string): StudioDatabase {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS course_lessons (
+      course_id TEXT NOT NULL,
+      lesson_id TEXT NOT NULL,
+      material_json TEXT NOT NULL,
+      PRIMARY KEY (course_id, lesson_id),
+      FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
       course_id TEXT,

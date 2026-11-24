@@ -86,7 +86,7 @@ export function createSessionTurns(
       if (progress) {
         const planned = await applyTeacherTurn(
           session,
-          teacherContext(cursor, session, { ...entry, option_id }, progress),
+          teacherContext(cursor, session, { ...entry, choice: option_id !== undefined }, progress),
           (current, plan) => {
             cursor.transition(current, plan.initialState);
             store.save(current);
