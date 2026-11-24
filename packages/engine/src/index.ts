@@ -1,4 +1,11 @@
 export { type CourseSummary, generateBlueprint, type LessonEntry } from './blueprints.js';
+export {
+  type CalcVerifyParams,
+  CalcVerifyParamsSchema,
+  type CalcVerifyResult,
+  CalcVerifyResultSchema,
+  calcVerify,
+} from './calc-verify.js';
 export { BAYES_DEMO_ID, demoCourses, TRANSFORMER_DEMO_ID } from './demo-courses.js';
 export {
   type Foundation,
