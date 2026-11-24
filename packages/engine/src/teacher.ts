@@ -1,11 +1,11 @@
-import { Type } from '@sinclair/typebox';
 import type { PublicDialogueTurn } from './projection.js';
 import type { LessonTraceSpan } from './session-protocol.js';
+import type { StructuredModelTool } from './structured-model.js';
 import { type ModelGateway, ModelGenerationError } from './structured-model.js';
 import { guardTeacherTurn, type TeacherTurnContext } from './teacher-guardrails.js';
 import { teacherPrompt } from './teacher-prompt.js';
 import { TeacherTurnOutputSchema, type TeacherTurnTrace } from './teacher-protocol.js';
-import { runTeacherTool, type TeacherTool, TeacherToolCallSchema } from './teacher-tools.js';
+import { calcVerifyTeacherTool, runTeacherTool, type TeacherTool } from './teacher-tools.js';
 
 export type { TeacherInput, TeacherProgress, TeacherTurnContext } from './teacher-guardrails.js';
 export { effortSignal } from './teacher-guardrails.js';
@@ -17,7 +17,7 @@ const maxToolSteps = 2;
 
 export function createTeacherPlanner(
   gateway: Pick<ModelGateway, 'generate'>,
-  tools: readonly TeacherTool[] = [],
+  tools: readonly TeacherTool[] = [calcVerifyTeacherTool],
 ) {
   return async function plan(context: TeacherTurnContext, dialogue: readonly PublicDialogueTurn[]) {
     const anchor = { generation: context.generation, step_id: context.played.at(-1)?.step_id ?? 0 };
@@ -30,49 +30,50 @@ export function createTeacherPlanner(
       outcome: 'rejected',
     };
     const observations: { tool: string; result: string }[] = [];
-    let toolBudget = tools.length ? maxToolSteps : 0;
+    let toolCallsUsed = 0;
     let reasons: string[] = [];
 
     for (let attempt = 1; attempt <= maxCorrections + 1; attempt++) {
+      const toolBudget = Math.max(
+        0,
+        Math.min(maxToolSteps - toolCallsUsed, tools.length ? maxToolSteps : 0),
+      );
       const prompt = teacherPrompt(context, dialogue, tools, reasons, observations, toolBudget);
-      const schema = toolBudget
-        ? Type.Union([TeacherTurnOutputSchema, TeacherToolCallSchema])
-        : TeacherTurnOutputSchema;
+      const modelTools: StructuredModelTool[] = toolBudget
+        ? tools.map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters,
+            run: async (input) => {
+              toolCallsUsed++;
+              const result = await runTeacherTool(tool, input, anchor);
+              spans.push(result.span);
+              const observation =
+                result.observation ?? JSON.stringify({ error: result.error ?? 'tool failed' });
+              observations.push({ tool: tool.name, result: observation });
+              return observation;
+            },
+          }))
+        : [];
       try {
         const { value, durationMs } = await gateway.generate({
-          schema,
+          schema: TeacherTurnOutputSchema,
           prompt,
           maxTokens: 4096,
           attempts: 1,
+          tools: modelTools,
+          maxToolCalls: toolBudget,
         });
         spans.push({ ...anchor, kind: 'model', name: 'teacher_turn', durationMs });
-        if ('tool' in value) {
-          --toolBudget;
-          const tool = tools.find(({ name }) => name === value.tool);
-          if (tool) {
-            const result = await runTeacherTool(tool, value.arguments, anchor);
-            spans.push(result.span);
-            if (result.observation !== undefined) {
-              observations.push({ tool: tool.name, result: result.observation });
-              // A successful tool step extends the current attempt, not the correction budget.
-              --attempt;
-              continue;
-            }
-            reasons = [result.error ?? 'tool did not return a result'];
-          } else {
-            reasons = ['tool is not registered for this lesson'];
-          }
-        } else {
-          const checked = guardTeacherTurn(context, value);
-          if (checked.ok) {
-            return {
-              ...checked,
-              trace: { ...trace, ...checked.trace, outcome: 'accepted' as const },
-              spans,
-            };
-          }
-          reasons = checked.reasons;
+        const checked = guardTeacherTurn(context, value);
+        if (checked.ok) {
+          return {
+            ...checked,
+            trace: { ...trace, ...checked.trace, outcome: 'accepted' as const },
+            spans,
+          };
         }
+        reasons = checked.reasons;
       } catch (error) {
         const modelError = error instanceof ModelGenerationError ? error : undefined;
         spans.push({
@@ -91,7 +92,7 @@ export function createTeacherPlanner(
           };
         }
         reasons = [
-          'emit one structured result with diagnosis and 4–8 unnumbered actions of the declared schema, or one tool call when available',
+          'emit one structured result with diagnosis and 4–8 unnumbered actions of the declared schema',
         ];
       }
       guardrails.push({ attempt, reasons });

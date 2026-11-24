@@ -88,6 +88,7 @@ function TeacherTurnRow({ turn, played }: { turn: TeacherTurnTrace; played: Read
 const spanName: Record<string, string> = {
   lesson_script: '生成离线剧本',
   interrupt_continuation: '生成打断续讲',
+  calc_verify: 'calc_verify · 安全计算',
 };
 
 export function TraceSpans({ spans }: { spans: LessonTraceSpan[] }) {

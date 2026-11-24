@@ -15,18 +15,17 @@ export function createSessionLocks(store: Store) {
     if (held.has(key)) return teacherTurnBusy;
     held.add(key);
     const lock = { scope: key, token: randomUUID() };
-    const acquired = store.transaction(() =>
-      store.acquireTeacherLock(lock.scope, lock.token, leaseMs),
-    );
-    if (!acquired) {
-      held.delete(key);
-      return teacherTurnBusy;
-    }
+    let acquired = false;
     try {
+      acquired = store.transaction(() => store.acquireTeacherLock(lock.scope, lock.token, leaseMs));
+      if (!acquired) return teacherTurnBusy;
       return await work(lock);
     } finally {
-      store.transaction(() => store.releaseTeacherLock(lock.scope, lock.token));
-      held.delete(key);
+      try {
+        if (acquired) store.transaction(() => store.releaseTeacherLock(lock.scope, lock.token));
+      } finally {
+        held.delete(key);
+      }
     }
   }
 

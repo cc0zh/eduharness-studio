@@ -2,6 +2,28 @@ import { Type } from '@sinclair/typebox';
 import type { ModelCatalogEntry, ModelConnectionInput } from './model-protocol.js';
 
 export const compatibleProvider = 'openai-compatible';
+export const modelProviderIds = [
+  'openai',
+  'anthropic',
+  'deepseek',
+  'moonshotai',
+  'openrouter',
+  compatibleProvider,
+];
+export const modelListProviders = new Set([
+  'openai',
+  'deepseek',
+  'moonshotai',
+  'openrouter',
+  compatibleProvider,
+]);
+
+export function modelAuthContext(readEnv?: (name: string) => string | undefined) {
+  return {
+    env: async (name: string) => readEnv?.(name)?.trim() || undefined,
+    fileExists: async () => false,
+  };
+}
 
 const connectionFields = {
   provider: Type.String({ minLength: 1, maxLength: 80 }),

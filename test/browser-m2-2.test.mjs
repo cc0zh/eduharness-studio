@@ -229,6 +229,10 @@ test('M2-2 Chromium faux: choice, transfer mastery, prerequisite restore, low ef
       ['mock_calc', 3],
     ],
   );
+  assert.deepEqual(
+    toolSpans.map(({ result }) => result.sum),
+    [4, 6],
+  );
   assert.ok(trace.spans.every(({ durationMs }) => Number.isFinite(durationMs) && durationMs >= 0));
   await screenshot(page, '07-xray-model-and-tool-spans.png');
 

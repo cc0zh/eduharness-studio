@@ -8,6 +8,15 @@ export interface StructuredModelRequest<S extends TSchema> {
   maxTokens?: number;
   /** A caller with its own correction loop can take ownership of retries. */
   attempts?: 1 | 2;
+  tools?: readonly StructuredModelTool[];
+  maxToolCalls?: number;
+}
+
+export interface StructuredModelTool {
+  name: string;
+  description: string;
+  parameters: TSchema;
+  run(input: unknown): unknown | Promise<unknown>;
 }
 
 export interface ModelGateway {
@@ -18,7 +27,7 @@ export interface ModelGateway {
   modelListConnection(input: unknown): Promise<{ baseUrl: string; apiKey: string }>;
   generate<S extends TSchema>(
     request: StructuredModelRequest<S>,
-  ): Promise<{ value: Static<S>; durationMs: number }>;
+  ): Promise<{ value: Static<S>; durationMs: number; toolCallsUsed?: number }>;
 }
 
 type FailureCode =

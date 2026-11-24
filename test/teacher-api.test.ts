@@ -295,7 +295,9 @@ test('tool trace spans stay redacted at the SQLite boundary', async (t) => {
     createTeacherPlanner(fixture.faux.gateway, tools),
   );
   fixture.faux.setResponses([
-    fixture.structured({ tool: 'mock_sum', arguments: { amount: 2, api_key: 'input-secret' } }),
+    fauxAssistantMessage(fauxToolCall('mock_sum', { amount: 2, api_key: 'input-secret' }), {
+      stopReason: 'toolUse',
+    }),
     fixture.structured(opening()),
   ]);
   const started = await sessions.start({

@@ -1,8 +1,41 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { openStudioDatabase } from '../apps/server/src/db.js';
+import type { sessionDatabase } from '../apps/server/src/session-db.js';
+import { createSessionLocks } from '../apps/server/src/session-lock.js';
 import { createSessionStore } from '../apps/server/src/session-store.js';
 import { makeFixture, opening, scaffold, startAtAsk } from './teacher-test-support.js';
+
+test('local teacher lock clears after acquire and release transaction failures', async () => {
+  for (const { failAt, failAfterWork } of [
+    { failAt: 1, failAfterWork: false },
+    { failAt: 2, failAfterWork: true },
+  ]) {
+    let calls = 0;
+    let databaseLock = false;
+    const store = {
+      transaction<T>(work: () => T): T {
+        calls++;
+        if (calls === failAt && !failAfterWork) throw new Error('injected transaction failure');
+        const result = work();
+        if (calls === failAt) throw new Error('injected transaction failure');
+        return result;
+      },
+      acquireTeacherLock() {
+        if (databaseLock) return false;
+        databaseLock = true;
+        return true;
+      },
+      releaseTeacherLock() {
+        databaseLock = false;
+      },
+    } as unknown as ReturnType<typeof sessionDatabase>;
+    const locks = createSessionLocks(store);
+
+    await assert.rejects(locks.run('session:lesson', () => 'first'));
+    assert.equal(await locks.run('session:lesson', () => 'recovered'), 'recovered');
+  }
+});
 
 test('another SQLite connection cannot duplicate an in-flight teacher model turn', async (t) => {
   const fixture = makeFixture(t);

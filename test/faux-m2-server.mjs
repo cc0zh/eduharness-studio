@@ -53,7 +53,7 @@ function response(
   };
 }
 
-function nextOutput(prompt) {
+function nextOutput(prompt, toolCalls = 0) {
   const context = JSON.parse(
     prompt
       .split('\n')
@@ -68,10 +68,10 @@ function nextOutput(prompt) {
   );
   const { input, activeKeypoint, lowEffortStreak } = context;
   if (input.kind === 'opening') {
-    if (observations.length === 0) {
+    if (observations.length + toolCalls === 0) {
       return { tool: 'mock_calc', arguments: { amount: 2, api_key: 'fake-tool-input-secret' } };
     }
-    if (observations.length === 1) {
+    if (observations.length + toolCalls === 1) {
       return { tool: 'mock_calc', arguments: { amount: 3, api_key: 'fake-tool-input-secret' } };
     }
     return response(context, {
@@ -192,10 +192,17 @@ function nextOutput(prompt) {
 
 function respond(context) {
   mock.setResponses([respond]);
-  const message = context.messages.at(-1);
+  const message = context.messages.findLast(({ role }) => role === 'user');
   const prompt = typeof message?.content === 'string' ? message.content : '';
-  const value = nextOutput(prompt);
-  return fauxAssistantMessage(fauxToolCall('emit_result', { value }), { stopReason: 'toolUse' });
+  const toolCalls = context.messages.filter(
+    (entry) => entry.role === 'toolResult' && entry.toolName === 'mock_calc',
+  ).length;
+  const value = nextOutput(prompt, toolCalls);
+  const call =
+    value && typeof value === 'object' && 'tool' in value
+      ? fauxToolCall(value.tool, value.arguments)
+      : fauxToolCall('emit_result', { value });
+  return fauxAssistantMessage(call, { stopReason: 'toolUse' });
 }
 
 mock.setResponses([respond]);

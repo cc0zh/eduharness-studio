@@ -241,6 +241,96 @@ test('bare replies require first a two-choice scaffold, then honest unverified p
 
 const fauxResult = (value: Parameters<typeof fauxToolCall>[1][string]) =>
   fauxAssistantMessage(fauxToolCall('emit_result', { value }), { stopReason: 'toolUse' });
+const fauxNativeCall = (name: string, args: Parameters<typeof fauxToolCall>[1]) =>
+  fauxAssistantMessage(fauxToolCall(name, args), { stopReason: 'toolUse' });
+function toolText(message: { content: readonly { type: string; text?: string }[] }) {
+  return message.content.find(({ type }) => type === 'text')?.text ?? '';
+}
+
+test('default planner runs real calc_verify through native pi-ai tool messages and traces its result', async () => {
+  const { gateway, setResponses, state } = createFauxModelGateway();
+  gateway.setByok({ provider: 'faux', modelId: 'faux-1', apiKey: 'faux-test-key' });
+  setResponses([
+    fauxNativeCall('calc_verify', { expression: '2/3 + 1/3', format: 'fraction' }),
+    (request) => {
+      const toolResult = request.messages.find((message) => message.role === 'toolResult');
+      assert.ok(toolResult);
+      assert.match(toolText(toolResult), /"text":"1"/);
+      return fauxResult(output('opening'));
+    },
+  ]);
+
+  const result = await createTeacherPlanner(gateway)(context, []);
+  assert.ok(result.ok, result.ok ? undefined : JSON.stringify(result));
+  assert.equal(state.callCount, 2);
+  const span = result.spans.find(({ kind }) => kind === 'tool');
+  assert.ok(span);
+  assert.equal(span.name, 'calc_verify');
+  assert.deepEqual(span.input, { expression: '2/3 + 1/3', format: 'fraction' });
+  assert.deepEqual(span.result, { ok: true, value: 1, text: '1', approximate: false });
+});
+
+test('calc_verify returns approximate and over-limit results safely to the model and X-Ray', async () => {
+  const { gateway, setResponses } = createFauxModelGateway();
+  gateway.setByok({ provider: 'faux', modelId: 'faux-1', apiKey: 'faux-test-key' });
+  setResponses([
+    fauxNativeCall('calc_verify', { expression: 'sqrt(2)' }),
+    (request) => {
+      const result = request.messages.find((message) => message.role === 'toolResult');
+      assert.ok(result);
+      assert.match(toolText(result), /"approximate":true/);
+      return fauxNativeCall('calc_verify', { expression: '1'.repeat(513) });
+    },
+    (request) => {
+      const results = request.messages.filter((message) => message.role === 'toolResult');
+      assert.equal(results.length, 2);
+      assert.match(toolText(results[1]), /did not match the calc_verify schema/);
+      return fauxResult(output('opening'));
+    },
+  ]);
+
+  const result = await createTeacherPlanner(gateway)(context, []);
+  assert.ok(result.ok, result.ok ? undefined : JSON.stringify(result));
+  const spans = result.spans.filter(({ kind }) => kind === 'tool');
+  assert.equal(spans.length, 2);
+  assert.deepEqual(spans[0].result, {
+    ok: true,
+    value: Number(Math.sqrt(2).toPrecision(15)),
+    text: String(Number(Math.sqrt(2).toPrecision(15))),
+    approximate: true,
+  });
+  assert.deepEqual(spans[1].input, { expression: '[已隐藏]', length: 513, format: 'decimal' });
+  assert.deepEqual(spans[1].result, {
+    ok: false,
+    error: {
+      code: 'invalid_input',
+      message: 'Arguments exceeded the bounded calc_verify schema.',
+    },
+  });
+});
+
+test('calc_verify domain errors are returned as bounded observations instead of aborting a teacher turn', async () => {
+  const { gateway, setResponses } = createFauxModelGateway();
+  gateway.setByok({ provider: 'faux', modelId: 'faux-1', apiKey: 'faux-test-key' });
+  setResponses([
+    fauxNativeCall('calc_verify', { expression: 'sqrt(-1)' }),
+    (request) => {
+      const observation = request.messages.find((message) => message.role === 'toolResult');
+      assert.ok(observation);
+      const result = toolText(observation);
+      assert.match(result, /domain_error/);
+      assert.equal(result.includes('stack'), false);
+      return fauxResult(output('opening'));
+    },
+  ]);
+
+  const result = await createTeacherPlanner(gateway)(context, []);
+  assert.ok(result.ok, result.ok ? undefined : JSON.stringify(result));
+  const span = result.spans.find(({ kind }) => kind === 'tool');
+  assert.ok(span);
+  assert.equal(span.name, 'calc_verify');
+  assert.match(JSON.stringify(span.result), /domain_error/);
+});
 
 test('faux planner caps tools, redacts their spans and supplies concrete correction feedback', async () => {
   const { gateway, setResponses, state } = createFauxModelGateway();
@@ -253,12 +343,11 @@ test('faux planner caps tools, redacts their spans and supplies concrete correct
       run: () => ({ sum: 4, token: 'not-on-the-trace', note: 'also hidden' }),
     },
   ]);
-  const call = fauxResult({ tool: 'mock_sum', arguments: { amount: 2, token: 'fake-sensitive' } });
+  const call = fauxNativeCall('mock_sum', { amount: 2, token: 'fake-sensitive' });
   setResponses([
     call,
     (request) => {
-      const content = request.messages.at(-1)?.content;
-      const prompt = typeof content === 'string' ? content : JSON.stringify(content);
+      const prompt = JSON.stringify(request.messages);
       assert.match(prompt, /sum.{0,6}4/);
       assert.equal(prompt.includes('not-on-the-trace'), false);
       assert.equal(prompt.includes('fake-sensitive'), false);
@@ -266,8 +355,7 @@ test('faux planner caps tools, redacts their spans and supplies concrete correct
     },
     fauxResult(output('mastered', completion)),
     (request) => {
-      const content = request.messages.at(-1)?.content;
-      const prompt = typeof content === 'string' ? content : JSON.stringify(content);
+      const prompt = JSON.stringify(request.messages);
       assert.match(prompt, /keypoint_complete requires mastered/);
       assert.match(prompt, /mock_sum/);
       return fauxResult(output('opening'));

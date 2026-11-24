@@ -34,7 +34,7 @@ export function teacherPrompt(
     '只在学生显露关键前置缺口时诊断 missing_prereq 并 insert_keypoint。插点后本轮教补课要点，设置新 id，最多两次，总要点最多六个。',
     '普通 ask 的实质作答后，如果已经能尝试检验，在末尾提出换数字、场景或边界条件的近迁移 ask，标 checkpoint=verify。错误答案先针对性搭脚手架。只在已经上屏的 verify ask 得到准确的实质作答时诊断 mastered，先用 speak(checkpoint=verify) 对照学生的推理，然后紧接 keypoint_complete。若还有下一要点，过关或跳过后用余下的拍引入它并停在新 ask。',
     toolBudget > 0 && tools.length
-      ? `需要验证数值时可以先请求一次 {tool, arguments}。剩余 ${toolBudget} 步。可用工具：${JSON.stringify(tools.map(({ name, description, parameters }) => ({ name, description, parameters })))}`
+      ? `数值核对或构造反例确有帮助时，可通过 pi-ai 工具循环调用可用工具，剩余 ${toolBudget} 步。先核对工具结果再定稿；若 approximate=true，只能作为估算，不能声称精确相等。结果失败或超限时应解释不确定性并降级。工具：${JSON.stringify(tools.map(({ name, description, parameters }) => ({ name, description, parameters })))}`
       : '直接返回完整课堂回合。',
     `课堂输入：${JSON.stringify({
       topic: context.topic,

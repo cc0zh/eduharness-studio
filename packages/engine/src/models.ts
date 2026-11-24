@@ -4,8 +4,10 @@ import {
   createProvider,
   envApiKeyAuth,
   fauxProvider,
+  type Message,
   type Model,
   type Models,
+  type Tool,
 } from '@earendil-works/pi-ai';
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
@@ -18,37 +20,31 @@ import {
   ModelConfigError,
   ModelConnectionSchema,
   ModelIdSchema,
+  modelAuthContext,
   modelConnection,
   modelEndpoint,
+  modelListProviders,
+  modelProviderIds,
   normalizeBaseUrl,
 } from './model-configuration.js';
 import type { ModelCatalogEntry } from './model-protocol.js';
 import { type ModelGateway, ModelGenerationError } from './structured-model.js';
+import {
+  redactToolCallArguments,
+  runStructuredModelLoop,
+  type StructuredToolCall,
+} from './structured-model-loop.js';
 
 export {
   type ModelGateway,
   ModelGenerationError,
   type StructuredModelRequest,
+  type StructuredModelTool,
 } from './structured-model.js';
 
-// Scope the UI to built-in providers that take a single API key and accept injected fetch.
-const providerIds = [
-  'openai',
-  'anthropic',
-  'deepseek',
-  'moonshotai',
-  'openrouter',
-  compatibleProvider,
-];
-const modelListProviders = new Set([
-  'openai',
-  'deepseek',
-  'moonshotai',
-  'openrouter',
-  compatibleProvider,
-]);
 const outputTool = 'emit_result';
 const maxAttempts = 2;
+const maxToolCallLimit = 2;
 
 export interface ModelGatewayOptions {
   provider?: string;
@@ -65,13 +61,6 @@ type Selection = {
   override?: string;
   apiKey?: string;
 };
-
-function authContext(readEnv: ModelGatewayOptions['readEnv']) {
-  return {
-    env: async (name: string) => readEnv?.(name)?.trim() || undefined,
-    fileExists: async () => false,
-  };
-}
 
 function resolveModel(
   registry: Models,
@@ -90,7 +79,8 @@ function resolveModel(
     provider === compatibleProvider || provider === 'openrouter'
       ? 'openai-completions'
       : registry.getModels(provider)[0]?.api;
-  if (!providerIds.includes(provider) || !api) throw new ModelConfigError('invalid_model_config');
+  if (!modelProviderIds.includes(provider) || !api)
+    throw new ModelConfigError('invalid_model_config');
   return {
     id,
     name: id,
@@ -218,6 +208,8 @@ function createGateway(
       timeoutMs = 30_000,
       maxTokens = 2048,
       attempts = maxAttempts,
+      tools = [],
+      maxToolCalls: toolLimit = 0,
     }) {
       const started = performance.now();
       const elapsed = () => Math.round(performance.now() - started);
@@ -229,7 +221,13 @@ function createGateway(
         timeoutMs > 60_000 ||
         !Number.isSafeInteger(maxTokens) ||
         maxTokens < 1 ||
-        (attempts !== 1 && attempts !== maxAttempts)
+        (attempts !== 1 && attempts !== maxAttempts) ||
+        !Number.isSafeInteger(toolLimit) ||
+        toolLimit < 0 ||
+        toolLimit > maxToolCallLimit ||
+        (toolLimit > 0 && tools.length === 0) ||
+        tools.some(({ name }) => !name || name === outputTool) ||
+        new Set(tools.map(({ name }) => name)).size !== tools.length
       ) {
         throw fail('model_invalid_options');
       }
@@ -246,45 +244,75 @@ function createGateway(
         const selected = await Promise.race([select(), deadline]);
         if (!selected) throw fail('model_offline');
         const { model } = selected;
-        const parameters = Type.Object({ value: schema }, { additionalProperties: false });
-        for (let attempt = 0; attempt < attempts; attempt++) {
-          const completion = registry.completeSimple(
-            model,
-            {
-              systemPrompt: `Return the answer with exactly one ${outputTool} tool call. ${attempt ? 'The previous response did not match the schema. Follow it exactly.' : ''}`,
-              messages: [{ role: 'user', content: prompt, timestamp: Date.now() }],
-              tools: [
-                { name: outputTool, description: 'Return the structured result.', parameters },
-              ],
+        const initialMessages: Message[] = [
+          { role: 'user', content: prompt, timestamp: Date.now() },
+        ];
+        const result = await Promise.race([
+          runStructuredModelLoop({
+            schema,
+            messages: initialMessages,
+            tools,
+            toolLimit,
+            attempts,
+            output: {
+              name: outputTool,
+              description: 'Return the structured result.',
+              parameters: Type.Object({ value: schema }, { additionalProperties: false }),
             },
-            {
-              apiKey: selected.source === 'byok' ? selected.apiKey : undefined,
-              fetch: (input, init) => transport(input, { ...init, redirect: 'error' }),
-              maxTokens: Math.min(maxTokens, model.maxTokens),
-              maxRetries: 0,
-              signal: controller.signal,
-              timeoutMs,
+            complete: async ({ messages, tools: definitions, correction }) => {
+              const sdkTools: Tool[] = definitions.map(({ name, description, parameters }) => ({
+                name,
+                description,
+                parameters,
+              }));
+              const response = await registry.completeSimple(
+                model,
+                {
+                  systemPrompt: `Return exactly one ${outputTool} call for the final structured result. Use a declared tool when it helps numeric verification. ${correction ? 'Correct the previous output or tool use.' : ''}`,
+                  messages: [...messages],
+                  tools: sdkTools,
+                },
+                {
+                  apiKey: selected.source === 'byok' ? selected.apiKey : undefined,
+                  fetch: (input, init) => transport(input, { ...init, redirect: 'error' }),
+                  maxTokens: Math.min(maxTokens, model.maxTokens),
+                  maxRetries: 0,
+                  signal: controller.signal,
+                  timeoutMs,
+                },
+              );
+              if (controller.signal.aborted) throw fail('model_timeout');
+              if (!['toolUse', 'stop', 'length'].includes(response.stopReason)) {
+                throw fail('model_request_failed');
+              }
+              return {
+                message: response,
+                stopReason: response.stopReason,
+                calls: response.content.flatMap((part): StructuredToolCall[] =>
+                  part.type === 'toolCall'
+                    ? [{ id: part.id, name: part.name, arguments: part.arguments }]
+                    : [],
+                ),
+              };
             },
-          );
-          const response = await Promise.race([completion, deadline]);
-          if (controller.signal.aborted) throw fail('model_timeout');
-          if (!['toolUse', 'stop', 'length'].includes(response.stopReason)) {
-            throw fail('model_request_failed');
-          }
-          const [call, extra] = response.content.filter((part) => part.type === 'toolCall');
-          if (response.stopReason === 'toolUse' && call?.name === outputTool && !extra) {
-            const args = call.arguments;
-            const value: unknown = args.value;
-            if (
-              Object.hasOwn(args, 'value') &&
-              Object.keys(args).length === 1 &&
-              Value.Check(schema, value)
-            ) {
-              return { value, durationMs: elapsed() };
-            }
-          }
-        }
-        throw fail('model_invalid_output');
+            appendToolResult: (call, content, isError): Message => ({
+              role: 'toolResult',
+              toolCallId: call.id,
+              toolName: call.name,
+              content: [{ type: 'text', text: content }],
+              isError,
+              timestamp: Date.now(),
+            }),
+            redactToolArguments: redactToolCallArguments,
+          }),
+          deadline,
+        ]);
+        if (!result) throw fail('model_invalid_output');
+        return {
+          value: result.value,
+          durationMs: elapsed(),
+          ...(tools.length ? { toolCallsUsed: result.toolCallsUsed } : {}),
+        };
       } catch (error) {
         // Provider errors, response text and validation details can contain credentials.
         if (error instanceof ModelGenerationError) throw error;
@@ -297,7 +325,7 @@ function createGateway(
 }
 
 export function createModelGateway(options: ModelGatewayOptions = {}): ModelGateway {
-  const registry = builtinModels({ authContext: authContext(options.readEnv) });
+  const registry = builtinModels({ authContext: modelAuthContext(options.readEnv) });
   registry.setProvider(
     createProvider({
       id: compatibleProvider,
@@ -307,13 +335,13 @@ export function createModelGateway(options: ModelGatewayOptions = {}): ModelGate
       api: openAICompletionsApi(),
     }),
   );
-  return createGateway(registry, providerIds, options);
+  return createGateway(registry, modelProviderIds, options);
 }
 
 /** A separate SDK registry with no network providers, for deterministic tests. */
 export function createFauxModelGateway(options: ModelGatewayOptions = {}) {
   const faux = fauxProvider({ provider: 'faux', models: [{ id: 'faux-1' }, { id: 'faux-2' }] });
-  const registry = createModels({ authContext: authContext(options.readEnv) });
+  const registry = createModels({ authContext: modelAuthContext(options.readEnv) });
   registry.setProvider({
     ...faux.provider,
     auth: { apiKey: envApiKeyAuth('Faux API key', ['STUDIO_FAUX_API_KEY']) },

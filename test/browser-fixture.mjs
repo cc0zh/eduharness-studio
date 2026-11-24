@@ -188,7 +188,7 @@ async function freePorts(count) {
   }
 }
 
-export async function startBrowserFixture(t, { useNpmDev, serverEntry } = {}) {
+export async function startBrowserFixture(t, { useNpmDev, serverEntry, env: overrides = {} } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'eduharness-browser-'));
   const database = join(directory, 'studio.sqlite');
   const nodes = [];
@@ -265,7 +265,11 @@ export async function startBrowserFixture(t, { useNpmDev, serverEntry } = {}) {
     assert.ok(cleanup.databaseDeleted);
   });
 
-  const env = { ...offlineServerEnv(join(directory, '.env')), STUDIO_DB_PATH: database };
+  const env = {
+    ...offlineServerEnv(join(directory, '.env')),
+    ...overrides,
+    STUDIO_DB_PATH: database,
+  };
   let webPort;
   const { signal } = t;
   if (useNpmDev) {

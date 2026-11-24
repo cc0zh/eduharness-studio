@@ -1,20 +1,100 @@
-import { type TSchema, Type } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
+import { CalcVerifyParamsSchema, CalcVerifyResultSchema, calcVerify } from './calc-verify.js';
 import type { LessonTraceSpan } from './session-protocol.js';
+import type { StructuredModelTool } from './structured-model.js';
 
-export interface TeacherTool {
-  name: string;
-  description: string;
-  parameters: TSchema;
-  run: (input: unknown) => unknown;
+export interface TeacherTool extends StructuredModelTool {
+  traceInput?: (input: unknown) => unknown;
+  traceResult?: (result: unknown) => unknown;
 }
 
-export const TeacherToolCallSchema = Type.Object(
-  { tool: Type.String({ minLength: 1, maxLength: 64 }), arguments: Type.Unknown() },
-  { additionalProperties: false },
-);
-
 const secretKey = /(?:key|token|secret|password|credential|authorization|cookie)/i;
+const mathNames = new Set([
+  'pi',
+  'e',
+  'sqrt',
+  'abs',
+  'pow',
+  'log',
+  'ln',
+  'exp',
+  'sin',
+  'cos',
+  'tan',
+  'floor',
+  'ceil',
+  'round',
+  'min',
+  'max',
+  'comb',
+  'perm',
+  'C',
+  'P',
+]);
+
+function mathExpression(value: string) {
+  if (value.length > 512 || !/^[0-9A-Za-z_+*/^().,\s-]+$/.test(value)) return undefined;
+  const names = value.match(/[A-Za-z][A-Za-z0-9_]*/g) ?? [];
+  return names.every((name) => mathNames.has(name) || /^e\d+$/i.test(name)) ? value : undefined;
+}
+
+function calcTraceInput(input: unknown) {
+  if (typeof input !== 'object' || input === null) return { expression: '[已隐藏]' };
+  const fields = input as Record<string, unknown>;
+  const expression = typeof fields.expression === 'string' ? fields.expression : undefined;
+  const safeExpression = expression && mathExpression(expression);
+  return {
+    expression: safeExpression ?? '[已隐藏]',
+    ...(expression && expression.length > 512 ? { length: expression.length } : {}),
+    format: fields.format === 'fraction' ? 'fraction' : 'decimal',
+  };
+}
+
+function calcTraceResult(result: unknown) {
+  if (
+    typeof result === 'object' &&
+    result !== null &&
+    'valid' in result &&
+    result.valid === false
+  ) {
+    return {
+      ok: false,
+      error: {
+        code: 'invalid_input',
+        message: 'Arguments exceeded the bounded calc_verify schema.',
+      },
+    };
+  }
+  if (!Value.Check(CalcVerifyResultSchema, result)) {
+    return { ok: false, error: { code: 'invalid_result' } };
+  }
+  if (result.ok) {
+    return {
+      ok: true,
+      value: result.value,
+      text: result.text,
+      approximate: result.approximate,
+    };
+  }
+  return {
+    ok: false,
+    error: {
+      code: result.error.code,
+      message: result.error.message,
+      ...(result.error.position === undefined ? {} : { position: result.error.position }),
+    },
+  };
+}
+
+export const calcVerifyTeacherTool: TeacherTool = {
+  name: 'calc_verify',
+  description:
+    'Safely evaluate a bounded arithmetic, fraction, or probability expression. Use when numerical verification or a counterexample helps; treat approximate=true as an estimate, never proof of exact equality.',
+  parameters: CalcVerifyParamsSchema,
+  run: calcVerify,
+  traceInput: calcTraceInput,
+  traceResult: calcTraceResult,
+};
 
 // Tool traces are a bounded projection of numeric facts, not a second copy of arbitrary text.
 function safeTrace(value: unknown, depth = 0): unknown {
@@ -31,6 +111,14 @@ function safeTrace(value: unknown, depth = 0): unknown {
   );
 }
 
+function projected(value: unknown, projection?: (value: unknown) => unknown): unknown {
+  try {
+    return projection?.(value) ?? safeTrace(value);
+  } catch {
+    return '[已隐藏]';
+  }
+}
+
 export async function runTeacherTool(
   tool: TeacherTool,
   input: unknown,
@@ -42,8 +130,8 @@ export async function runTeacherTool(
     kind: 'tool',
     name: tool.name,
     durationMs: Math.round(performance.now() - started),
-    input: safeTrace(input),
-    result,
+    input: projected(input, tool.traceInput),
+    result: projected(result, tool.traceResult),
   });
   try {
     if (!Value.Check(tool.parameters, input)) {
@@ -54,7 +142,7 @@ export async function runTeacherTool(
     }
     const result: unknown = await tool.run(input);
     const raw = JSON.stringify(result);
-    const observation = JSON.stringify(safeTrace(result));
+    const observation = JSON.stringify(projected(result, tool.traceResult));
     if (
       raw === undefined ||
       raw.length > 2048 ||
@@ -66,7 +154,7 @@ export async function runTeacherTool(
         span: span({ valid: false }),
       };
     }
-    return { observation, span: span(safeTrace(result)) };
+    return { observation, span: span(result) };
   } catch {
     return { error: `${tool.name} could not complete`, span: span({ valid: false }) };
   }

@@ -1,6 +1,6 @@
 # 当前状态
 
-- **当前里程碑**　M2 进行中。M2-1 已交付；M2-2 单堂教师闭环采用 faux 验收，真实试学和 `calc_verify` 接线另行验证。
+- **当前里程碑**　M2 进行中。M2-1/M2-1b 与 M2-2b 的 loopback/faux 验收已通过；真实付费试学仍须单独获预算授权。
 - **最后更新**　2026-11-24
 
 ## M2-1 验收证据
@@ -10,7 +10,8 @@
 
 ## M2-2 验收入口
 
-- `npm run test:e2e` 包含 `test/browser-m2-2.test.mjs`；`STUDIO_TEACHER_SCREENSHOTS` 可指定截图目录。新开带模型配置的非示范课使用 Teacher Agent，示范课和既有离线会话仍使用各自剧本。追踪及恢复只以播放器已确认的拍为课堂证据。
+- `npm run test:e2e` 覆盖 Teacher Agent 状态机回归与 `test/browser-m2-2b.test.mjs` loopback BYOK 联合场景。实际 `calc_verify` 工具结果先回到模型再生成结构化回合，诊断、护栏与脱敏工具耗时在 X-Ray 可读。M2-2b 截图和全量检查收据位于本机证据目录 `m2-2b/`；仅用 loopback/faux，未发真实付费请求。
+- 新开带模型配置的非示范课使用 Teacher Agent，示范课和既有离线会话仍使用各自剧本。追踪及恢复只以播放器确认的拍为课堂证据；设置 `STUDIO_TEACHER_SCREENSHOTS` 或 `STUDIO_M2_2B_SCREENSHOTS` 可分别保存浏览器截图。
 
 ## M1.5 验收证据
 
@@ -33,4 +34,4 @@ M1-4 全量检查 48 项通过。阶段独立复核通过，10 张 M1-4 截图�
 
 ## 下一步（M2）
 
-- **M2-2 后续**　合入 `calc_verify` 后接线；真实冒烟须先获预算授权。后续切片再接入自由主题建课、懒生成课节和配图。[M2 规格书](plans/m2-spec.md) · [完整路线图（M0–M4）](plans/roadmap.md)
+- **后续**　若需真实模型试学，先取得预算授权；后续切片再接入自由主题建课、懒生成课节和配图。[M2 规格书](plans/m2-spec.md) · [完整路线图（M0–M4）](plans/roadmap.md)

@@ -6,7 +6,52 @@ export const modelMockList = [
   { id: 'loop/reasoner:v2', name: 'Loopback Reasoner' },
 ];
 
-export async function startModelMock(t) {
+function teacherOutput(status, afterStep) {
+  const card = `loopback-${afterStep + 1}`;
+  return {
+    diagnosis: {
+      status,
+      summary: status === 'opening' ? '先预测合并后的数量。' : '未经历核验，不可宣告掌握。',
+      strategy: '用已核对的算式构造直觉选项。',
+    },
+    actions: [
+      {
+        type: 'board',
+        column: 1,
+        card_id: `${card}-board`,
+        title: '先观察合并',
+        content: '2 + 3 = ?',
+      },
+      { type: 'speak', text: '把两组物件合在一起，再数一数。' },
+      { type: 'highlight', card_id: `${card}-board`, target_text: '2 + 3', style: 'circle' },
+      {
+        type: 'ask',
+        card_id: `${card}-ask`,
+        mode: 'choice',
+        prompt: '两组合并后共有多少？',
+        options: [
+          { id: 'four', label: '4 个' },
+          { id: 'five', label: '5 个' },
+        ],
+      },
+    ],
+  };
+}
+
+function teacherContext(body) {
+  const prompt = body.messages.find(({ role }) => role === 'user')?.content;
+  if (typeof prompt !== 'string') return undefined;
+  const marker = '课堂输入：';
+  const start = prompt.indexOf(marker);
+  if (start < 0) return undefined;
+  try {
+    return JSON.parse(prompt.slice(start + marker.length).split('\n')[0]);
+  } catch {
+    return undefined;
+  }
+}
+
+export async function startModelMock(t, { teacher = false } = {}) {
   const calls = [];
   const mock = createServer(async (req, res) => {
     calls.push({ path: req.url, method: req.method, authorization: req.headers.authorization });
@@ -81,15 +126,53 @@ export async function startModelMock(t) {
         const chunks = [];
         for await (const chunk of req) chunks.push(chunk);
         calls.at(-1).body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        const body = calls.at(-1).body;
+        const hasCalcVerify = body.tools?.some(({ function: tool }) => tool.name === 'calc_verify');
+        const hasToolResult = body.messages.some(({ role }) => role === 'tool');
+        const classroom = teacher ? teacherContext(body) : undefined;
+        const corrected = body.messages.some(
+          ({ role, content }) =>
+            role === 'user' && String(content).includes('上一份回合被护栏拦截'),
+        );
+        const functionCall =
+          teacher &&
+          classroom?.input?.kind === 'opening' &&
+          hasCalcVerify &&
+          !hasToolResult &&
+          !corrected
+            ? {
+                name: 'calc_verify',
+                arguments: JSON.stringify({ expression: '2 + 3' }),
+              }
+            : teacher
+              ? {
+                  name: 'emit_result',
+                  arguments: JSON.stringify({
+                    value: teacherOutput(
+                      classroom?.input?.kind === 'opening'
+                        ? 'opening'
+                        : corrected
+                          ? 'clarifying'
+                          : 'mastered',
+                      Number(classroom?.afterStep ?? 0),
+                    ),
+                  }),
+                }
+              : {
+                  name: 'emit_result',
+                  arguments: JSON.stringify({
+                    value: 'loopback-ok',
+                  }),
+                };
         res.setHeader('Content-Type', 'text/event-stream');
         const delta = {
           role: 'assistant',
           tool_calls: [
             {
               index: 0,
-              id: 'call_test',
+              id: teacher && functionCall.name === 'calc_verify' ? 'call_calc_verify' : 'call_test',
               type: 'function',
-              function: { name: 'emit_result', arguments: '{"value":"loopback-ok"}' },
+              function: functionCall,
             },
           ],
         };
