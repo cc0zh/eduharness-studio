@@ -11,9 +11,9 @@ const dbPath =
     ? ':memory:'
     : resolve(process.cwd(), env.STUDIO_DB_PATH ?? 'data/studio.sqlite');
 
-const { gateway, closeModelTransport } = configureModels(env);
+const { gateway, modelFetch, closeModelTransport } = configureModels(env);
 const database = openStudioDatabase(dbPath);
-const app = createServerApp({ database, modelGateway: gateway });
+const app = createServerApp({ database, modelGateway: gateway, modelFetch });
 
 const server = serve(
   {

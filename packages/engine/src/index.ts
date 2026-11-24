@@ -25,7 +25,14 @@ export {
   readLessonGeneration,
   validateLessonScript,
 } from './lesson-playback.js';
-export type { ModelSettings, ModelStatus } from './model-protocol.js';
+export type {
+  ByokInput,
+  ModelCatalogEntry,
+  ModelChoice,
+  ModelConnectionInput,
+  ModelSettings,
+  ModelStatus,
+} from './model-protocol.js';
 export {
   evaluateOfflineQuality,
   type OfflineQualityReport,

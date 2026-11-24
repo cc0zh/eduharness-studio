@@ -43,9 +43,10 @@ npm run dev
 ## 模型配置（M2-1）
 
 - 顶栏「模型与自带密钥」从 `/api/model` 读取状态和目录。临时 Key 仅保存在本地服务进程，刷新页面会读回状态（不读回 Key）；清空或重启服务回落环境配置，无 Key 则离线。
-- 服务启动读取仓库根 `.env`（可用 `STUDIO_ENV_FILE` 指向独立文件）；同名进程环境变量优先。使用供应商原生变量（如 `OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`DEEPSEEK_API_KEY`），可用 `STUDIO_MODEL_PROVIDER` / `STUDIO_MODEL_ID` 指定模型；未指定则用首个有凭据的目录项。模型调用可经 `HTTPS_PROXY`，支持 `NO_PROXY`。
-- 当前目录限 `pi-ai` 支持单 Key 且可注入代理传输的 OpenAI、Anthropic、DeepSeek、Moonshot AI、OpenRouter。`live` 只表示已配置，不验证 Key；本切片的示范课、建课与上课仍离线。真实冒烟须先获费用授权。
-- 复验顶栏 BYOK：`node --test test/browser-m2-1.test.mjs`。设置 `STUDIO_MODEL_SCREENSHOTS` 可保存 Chromium 截图。
+- 服务启动读取仓库根 `.env`（可用 `STUDIO_ENV_FILE` 指向独立文件），同名进程环境变量优先。内置供应商沿用原生变量，如 `OPENAI_API_KEY`、`OPENROUTER_API_KEY`。用 `STUDIO_MODEL_PROVIDER`、`STUDIO_MODEL_ID`、`STUDIO_MODEL_BASE_URL` 设置供应商、模型和 Base URI。自定义 OpenAI 格式使用 `openai-compatible` 和 `OPENAI_COMPATIBLE_API_KEY`，需要明确指定 Base URI 与模型 ID。
+- Base URI 填 API 根地址，例如 `http://127.0.0.1:8080/v1` 或 `https://openrouter.ai/api/v1`。地址格式要求 HTTP(S) 且省略 URL 凭据、查询参数和片段。生成和拉取目录均使用服务端 `HTTPS_PROXY` / `HTTP_PROXY` 和 `NO_PROXY`。
+- 「拉取模型」会向选定供应商发送一次 `GET /models`。空密码框仅复用同供应商、同规范化 Base URI 的已有凭据。切换地址需输入该地址的 Key。拉取失败时可用预设或手填模型 ID。保存本身只更新配置。`live` 表示已配置，真实模型冒烟须先获费用授权。
+- `node --test test/browser-m2-1.test.mjs` 用 loopback 复验顶栏流程。设置 `STUDIO_MODEL_LIST_SCREENSHOTS` 可保存 M2-1b Chromium 截图。
 
 ## 常见排障
 

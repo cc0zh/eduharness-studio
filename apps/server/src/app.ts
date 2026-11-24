@@ -10,11 +10,13 @@ import { createModelRoutes } from './model-routes.js';
 export interface ServerAppOptions {
   database: StudioDatabase;
   modelGateway?: ModelGateway;
+  modelFetch?: typeof globalThis.fetch;
 }
 
 export function createServerApp({
   database,
   modelGateway = createModelGateway(),
+  modelFetch = globalThis.fetch,
 }: ServerAppOptions): Hono {
   const app = new Hono();
 
@@ -49,7 +51,7 @@ export function createServerApp({
   });
 
   const courses = createCourseStore(database);
-  app.route('/api', createModelRoutes(modelGateway));
+  app.route('/api', createModelRoutes(modelGateway, modelFetch));
   app.route('/api', createCourseRoutes(courses));
   app.route('/api', createLessonRoutes(courses, database));
   return app;

@@ -32,10 +32,14 @@ test('model gateway stays offline without a key and does not call faux', async (
   const { gateway, state } = createFauxModelGateway({ readEnv: () => '  ' });
   const offline = { mode: 'offline', provider: null, modelId: null, source: 'none' };
   assert.deepEqual(await gateway.getStatus(), offline);
-  assert.equal(gateway.setByok({ ...byok, apiKey: '\n' }), false);
-  assert.equal(gateway.setByok({ ...byok, modelId: 'outside-catalog' }), false);
+  assert.throws(() => gateway.setByok({ ...byok, apiKey: '\n' }), {
+    message: 'model_key_required',
+  });
+  assert.throws(() => gateway.setByok({ ...byok, modelId: 'outside-catalog' }), {
+    message: 'invalid_model_config',
+  });
   await assert.rejects(gateway.generate(request), failure('model_offline'));
-  assert.equal(gateway.setByok(byok), true);
+  gateway.setByok(byok);
   assert.deepEqual(await gateway.getStatus(), {
     mode: 'live',
     provider: 'faux',
@@ -49,7 +53,7 @@ test('model gateway stays offline without a key and does not call faux', async (
 
 test('model gateway accepts validated TypeBox output after one corrective retry', async () => {
   const { gateway, state, setResponses } = createFauxModelGateway();
-  assert.ok(gateway.setByok(byok));
+  gateway.setByok(byok);
   setResponses([
     result({ count: '2' }),
     (_context, options, _state, model) => {
@@ -68,7 +72,7 @@ test('model gateway accepts validated TypeBox output after one corrective retry'
 
 test('model gateway stops after two invalid tool outputs and hides their values', async () => {
   const { gateway, state, setResponses } = createFauxModelGateway();
-  assert.ok(gateway.setByok(byok));
+  gateway.setByok(byok);
   setResponses([result({ count: 1 }, 'wrong_tool'), result({ count: key }), result({ count: 3 })]);
   await assert.rejects(gateway.generate(request), failure('model_invalid_output'));
   assert.equal(state.callCount, 2);
@@ -76,7 +80,7 @@ test('model gateway stops after two invalid tool outputs and hides their values'
 
 test('model gateway hides provider errors and never retries them', async () => {
   const { gateway, state, setResponses } = createFauxModelGateway();
-  assert.ok(gateway.setByok(byok));
+  gateway.setByok(byok);
   setResponses([
     fauxAssistantMessage('', { stopReason: 'error', errorMessage: `Provider echoed ${key}` }),
   ]);
@@ -86,7 +90,7 @@ test('model gateway hides provider errors and never retries them', async () => {
 
 test('model gateway enforces a deadline even if a faux provider does not settle on abort', async () => {
   const { gateway, state, setResponses } = createFauxModelGateway();
-  assert.ok(gateway.setByok(byok));
+  gateway.setByok(byok);
   let signal: AbortSignal | undefined;
   setResponses([
     (_context, options) => {

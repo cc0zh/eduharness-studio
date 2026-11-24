@@ -6,6 +6,7 @@
 ## M2-1 验收证据
 
 - `npm run check` 及 Chromium BYOK 流程通过，收据和截图位于本机证据目录下的 `m2-1/`。模型生成由 `pi-ai` faux 验证，代理由本机 CONNECT 验证。真实教学调用归入后续切片。
+- M2-1b 扩展 OpenRouter、自定义 Base URI 和模型目录拉取。loopback 验收与桌面、390px 截图位于 `m2-1b/`。配置方式见[运行手册](runbook.md#模型配置m2-1)。
 
 ## M1.5 验收证据
 
