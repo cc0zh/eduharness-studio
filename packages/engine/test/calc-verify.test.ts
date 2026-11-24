@@ -127,6 +127,26 @@ test('calc_verify preserves exact operands and special values in composed expres
   assert.equal(logNearOne.approximate, true);
 });
 
+test('calc_verify does not infer an exact angle from a mixed-precision tie', () => {
+  for (const [expression, value] of [
+    ['ceil(sin(min(pi, 3.141592653589793)))', 1],
+    ['ceil(sin(min(3.141592653589793, pi)))', 1],
+    ['floor(sin(max(-pi, -3.141592653589793)))', -1],
+    ['floor(sin(max(-3.141592653589793, -pi)))', -1],
+  ] as const) {
+    const result = success(expression);
+    assert.equal(result.value, value, expression);
+    assert.equal(result.approximate, true, expression);
+  }
+  assert.deepEqual(success('sin(min(pi, 2*pi/2))'), {
+    ok: true,
+    value: 0,
+    text: '0',
+    approximate: false,
+  });
+  assert.equal(success('max(1/3, 2/6)', 'fraction').approximate, false);
+});
+
 test('calc_verify computes probability, combinations and permutations exactly', () => {
   const probability = success('C(5, 2)*C(7, 1)/comb(12, 3)', 'fraction');
   assert.equal(probability.text, '7/22');

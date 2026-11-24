@@ -95,8 +95,8 @@ function trig(name: 'sin' | 'cos' | 'tan', value: CalcValue): CalcValue {
 function extreme(args: CalcValue[], min: boolean): CalcValue {
   return args.reduce((best, candidate) => {
     const ordering = compareValues(candidate, best);
-    // A floating-point tie cannot establish that an exact operand wins.
-    if (ordering === 0 && isRatio(best) && !isRatio(candidate)) return candidate;
+    // Neither operand's exact representation can be selected on a floating-point tie.
+    if (ordering === undefined) return numeric(best);
     return (min ? ordering < 0 : ordering > 0) ? candidate : best;
   });
 }

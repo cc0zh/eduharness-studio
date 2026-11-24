@@ -230,7 +230,8 @@ export function squareRoot(value: CalcValue): CalcValue {
   return exact ?? Math.sqrt(x);
 }
 
-export function compareValues(left: CalcValue, right: CalcValue): number {
+// Undefined means distinct values may have rounded to the same double; 0 proves equality.
+export function compareValues(left: CalcValue, right: CalcValue): -1 | 0 | 1 | undefined {
   if (isRatio(left) && isRatio(right)) {
     const difference = left.n * right.d - right.n * left.d;
     return difference < 0n ? -1 : difference > 0n ? 1 : 0;
@@ -241,7 +242,7 @@ export function compareValues(left: CalcValue, right: CalcValue): number {
   }
   const a = numeric(left);
   const b = numeric(right);
-  return a < b ? -1 : a > b ? 1 : 0;
+  return a < b ? -1 : a > b ? 1 : undefined;
 }
 
 export function exactIntegerLog(value: Ratio, base: Ratio, estimate: number): Ratio | undefined {
