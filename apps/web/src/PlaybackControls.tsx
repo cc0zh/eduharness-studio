@@ -1,6 +1,7 @@
 import type { Action } from '@eduharness-studio/engine';
 import { Pause, Play, Send, SkipForward, X } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
+import { cn } from '@/lib/utils';
 import { EvidenceLink } from './EvidenceLink';
 import { LessonAskCard } from './LessonAskCard';
 import type { useLessonPlayback } from './useLessonPlayback';
@@ -46,7 +47,12 @@ export function PlaybackControls({
   }
 
   return (
-    <div className="shrink-0 px-3 pt-1 pb-3 sm:px-7 sm:pb-4">
+    <div
+      className={cn(
+        'shrink-0 px-3 pt-1 pb-3 sm:px-7 sm:pb-4',
+        ask && 'max-h-[75%] overflow-y-auto overscroll-contain',
+      )}
+    >
       <section
         aria-label="课堂播放控制"
         className="mx-auto max-w-[56rem] overflow-hidden rounded-[14px] border border-ink/10 bg-surface shadow-[0_4px_20px_rgba(26,25,23,0.045),0_1px_2px_rgba(26,25,23,0.02)]"
@@ -73,6 +79,7 @@ export function PlaybackControls({
               ask={ask}
               text={playback.answerText}
               canAnswer={playback.canAnswer}
+              busy={playback.busy}
               setText={playback.setAnswerText}
               submit={playback.submitAnswer}
             />

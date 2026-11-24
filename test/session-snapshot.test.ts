@@ -29,17 +29,20 @@ test('an active-session read keeps one SQLite snapshot across a concurrent worke
     }
     return statement;
   };
-  const sessions = createSessionStore(database);
+  const sessions = createSessionStore(database, async () => {
+    throw new Error('Offline sessions do not use the teacher planner');
+  });
   const course = demoCourses[0];
   const lesson = course.units[0].lessons[0];
-  const started = sessions.start(
-    course.id,
-    lesson.id,
-    course.topic,
-    () => offlineLesson(course, lesson),
-    false,
-  );
-  assert.ok(started.snapshot && !('error' in started.snapshot));
+  const started = await sessions.start({
+    courseId: course.id,
+    lessonId: lesson.id,
+    topic: course.topic,
+    buildScript: () => offlineLesson(course, lesson),
+    restart: false,
+    live: false,
+  });
+  assert.ok('snapshot' in started);
   const { session_id: id, generation } = started.snapshot;
   const active = sessions.openStream(id, generation);
   assert.ok(active && !('error' in active));

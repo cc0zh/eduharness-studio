@@ -12,7 +12,7 @@ export interface TeachingTransition {
 const ALLOWED_TRANSITIONS: Record<TeachingState, readonly TeachingState[]> = {
   intake: ['diagnose'],
   diagnose: ['scaffold'],
-  scaffold: ['handoff', 'diagnose'],
+  scaffold: ['handoff', 'diagnose', 'completed'],
   handoff: ['verify', 'diagnose'],
   verify: ['diagnose', 'completed'],
   completed: [],
@@ -31,11 +31,14 @@ export function stateAfterBeat(
   final: boolean,
 ): TeachingState | undefined {
   if (waitingForAnswer || state === 'intake' || state === 'completed') return undefined;
-  if (final && action.type !== 'keypoint_complete') return undefined;
+  if (action.type === 'ask') return state === 'scaffold' ? 'handoff' : undefined;
   if (action.type === 'keypoint_complete') {
     return state === 'verify' ? (final ? 'completed' : 'diagnose') : undefined;
   }
-  if (action.type === 'ask') return state === 'scaffold' ? 'handoff' : undefined;
+  if (action.type === 'keypoint_unverified') {
+    return state === 'scaffold' ? (final ? 'completed' : 'diagnose') : undefined;
+  }
+  if (final) return undefined;
   if (action.type === 'speak' && action.checkpoint === 'verify') {
     return state === 'handoff' ? 'verify' : undefined;
   }

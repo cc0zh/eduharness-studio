@@ -164,7 +164,7 @@ async function freePorts(count) {
   }
 }
 
-export async function startBrowserFixture(t, { useNpmDev } = {}) {
+export async function startBrowserFixture(t, { useNpmDev, serverEntry } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'eduharness-browser-'));
   const database = join(directory, 'studio.sqlite');
   const nodes = [];
@@ -250,7 +250,10 @@ export async function startBrowserFixture(t, { useNpmDev } = {}) {
     ]);
     webPort = web;
   } else {
-    const api = startNode(['--import', 'tsx', 'apps/server/src/index.ts'], { ...env, PORT: '0' });
+    const api = startNode(['--import', 'tsx', serverEntry ?? 'apps/server/src/index.ts'], {
+      ...env,
+      PORT: '0',
+    });
     nodes.push(api);
     const apiPort = await api.port(apiLine, signal);
     ports.add(apiPort);

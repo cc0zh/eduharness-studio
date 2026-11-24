@@ -1,11 +1,15 @@
 import {
+  BAYES_DEMO_ID,
   evaluateOfflineQuality,
   type LessonEnd,
   type LessonMetadata,
   offlineLesson,
   projectPlayedDialogue,
   type SessionQuality,
+  TRANSFORMER_DEMO_ID,
 } from '@eduharness-studio/engine';
+import type { ModelGateway } from '@eduharness-studio/engine/models';
+import { createTeacherPlanner, type TeacherTool } from '@eduharness-studio/engine/teacher';
 import { Type } from '@sinclair/typebox';
 import { type Context, Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
@@ -30,8 +34,20 @@ const StreamQuery = Type.Object({
 const LESSON_PATH = '/courses/:courseId/lessons/:lessonId';
 const SESSION_PATH = '/sessions/:sessionId';
 
-export function createLessonRoutes(courses: CourseStore, database: StudioDatabase) {
-  const sessions = createSessionStore(database);
+function writeStatus(error: string) {
+  if (error === 'session_not_found') return 404;
+  if (error === 'session_retired') return 410;
+  if (error === 'teacher_turn_failed') return 502;
+  return 409;
+}
+
+export function createLessonRoutes(
+  courses: CourseStore,
+  database: StudioDatabase,
+  gateway: ModelGateway,
+  tools?: readonly TeacherTool[],
+) {
+  const sessions = createSessionStore(database, createTeacherPlanner(gateway, tools));
   const routes = new Hono();
 
   function resolveLesson({ courseId, lessonId }: { courseId: string; lessonId: string }) {
@@ -67,19 +83,23 @@ export function createLessonRoutes(courses: CourseStore, database: StudioDatabas
     `${LESSON_PATH}/sessions`,
     checked('param', LessonParams),
     checked('json', StartSchema),
-    (c) => {
+    async (c) => {
       const params = c.req.valid('param');
       const result = resolveLesson(params);
       if (!result.course) return c.json({ error: result.error }, result.status);
-      const started = sessions.start(
-        params.courseId,
-        params.lessonId,
-        result.course.topic,
-        () => offlineLesson(result.course, result.lesson),
-        c.req.valid('json').restart === true,
-      );
+      const live =
+        params.courseId !== BAYES_DEMO_ID &&
+        params.courseId !== TRANSFORMER_DEMO_ID &&
+        (await gateway.getStatus()).mode === 'live';
+      const started = await sessions.start({
+        ...params,
+        topic: result.course.topic,
+        buildScript: () => offlineLesson(result.course, result.lesson),
+        restart: c.req.valid('json').restart === true,
+        live,
+      });
       return 'error' in started
-        ? c.json(started, 410)
+        ? c.json(started, writeStatus(started.error))
         : c.json(started.snapshot, started.created ? 201 : 200);
     },
   );
@@ -168,10 +188,14 @@ export function createLessonRoutes(courses: CourseStore, database: StudioDatabas
 
   function updated(
     c: Context,
-    result: ReturnType<typeof sessions.interrupt> | ReturnType<typeof sessions.progress>,
+    result:
+      | Awaited<ReturnType<typeof sessions.interrupt> | ReturnType<typeof sessions.answer>>
+      | ReturnType<typeof sessions.progress>
+      | undefined,
   ) {
+    if (!result) return c.json({ error: 'session_not_found' }, 404);
     return 'error' in result
-      ? c.json(result, result.error === 'session_not_found' ? 404 : 409)
+      ? c.json(result, writeStatus(result.error ?? 'teacher_turn_failed'))
       : c.json(result);
   }
 
@@ -190,13 +214,15 @@ export function createLessonRoutes(courses: CourseStore, database: StudioDatabas
     `${SESSION_PATH}/answer`,
     checked('param', SessionParams),
     checked('json', AnswerSchema),
-    (c) => updated(c, sessions.answer(c.req.valid('param').sessionId, c.req.valid('json'))),
+    async (c) =>
+      updated(c, await sessions.answer(c.req.valid('param').sessionId, c.req.valid('json'))),
   );
   routes.post(
     `${SESSION_PATH}/interrupt`,
     checked('param', SessionParams),
     checked('json', InterruptSchema),
-    (c) => updated(c, sessions.interrupt(c.req.valid('param').sessionId, c.req.valid('json'))),
+    async (c) =>
+      updated(c, await sessions.interrupt(c.req.valid('param').sessionId, c.req.valid('json'))),
   );
 
   return routes;

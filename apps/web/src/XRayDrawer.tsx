@@ -15,11 +15,7 @@ import { EvidenceLink } from './EvidenceLink';
 import { sessionPath } from './lesson-session';
 import type { useLessonPlayback } from './useLessonPlayback';
 import { XRayQuality } from './XRayQuality';
-
-const spanName: Record<string, string> = {
-  lesson_script: '生成离线剧本',
-  interrupt_continuation: '生成打断续讲',
-};
+import { TeacherTurns, TraceSpans } from './XRayTrace';
 
 export function XRayDrawer({
   playback,
@@ -32,7 +28,7 @@ export function XRayDrawer({
   onEvidence: (number: number, source: PlayedDialogue) => void;
   onClose: () => void;
 }) {
-  const { sessionId, generation, played, records, pendingBeat, saving } = playback;
+  const { sessionId, generation, played, records, pendingBeat, saving, busy } = playback;
   const lastStep = played.at(-1)?.step_id ?? 0;
   const [trace, setTrace] = useState<SessionTrace>();
   const [traceError, setTraceError] = useState('');
@@ -40,7 +36,7 @@ export function XRayDrawer({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: Refresh this read when a played step, input, generation, or explicit retry changes.
   useEffect(() => {
-    if (!sessionId || saving) return;
+    if (!sessionId || saving || busy) return;
     let active = true;
     request<SessionTrace>(`${sessionPath(sessionId)}/xray`, undefined, { cache: 'no-store' }).then(
       (data) => {
@@ -55,9 +51,19 @@ export function XRayDrawer({
     return () => {
       active = false;
     };
-  }, [sessionId, generation, lastStep, records.length, saving, retryTrace]);
+  }, [sessionId, generation, lastStep, records.length, saving, busy, retryTrace]);
 
   const current = trace?.generation === generation ? trace : undefined;
+  const traceFailure = traceError && (
+    <div className="space-y-2">
+      <p role="alert" className="text-xs text-accent">
+        {traceError}
+      </p>
+      <Button variant="outline" size="sm" onClick={() => setRetryTrace((n) => n + 1)}>
+        重试读取
+      </Button>
+    </div>
+  );
   const truncated = records.reduce(
     (total, record) => total + (record.kind === 'interrupt' ? record.truncated_step_ids.length : 0),
     0,
@@ -113,14 +119,7 @@ export function XRayDrawer({
             </div>
             <Section title="TeachingState 真实跃迁">
               {traceError ? (
-                <div className="space-y-2">
-                  <p role="alert" className="text-xs text-accent">
-                    {traceError}
-                  </p>
-                  <Button variant="outline" size="sm" onClick={() => setRetryTrace((n) => n + 1)}>
-                    重试读取
-                  </Button>
-                </div>
+                traceFailure
               ) : current ? (
                 <ol className="space-y-2 text-xs">
                   {current.transitions.map(({ from, to, step_id, generation }) => (
@@ -170,22 +169,18 @@ export function XRayDrawer({
             value="dialogue"
             className="min-h-0 flex-1 space-y-3.5 overflow-y-auto overscroll-contain p-4 sm:px-5"
           >
+            {traceFailure}
+            {current?.teacherTurns?.length ? (
+              <Section title="教师回合 · 认知诊断">
+                <TeacherTurns
+                  turns={current.teacherTurns}
+                  playedStepIds={current.playedStepIds ?? []}
+                />
+              </Section>
+            ) : null}
             <Section title="耗时与步骤追踪">
               {current?.spans.length ? (
-                <ul className="space-y-2 text-xs">
-                  {current.spans.map(({ kind, name, durationMs, generation, step_id }) => (
-                    <li
-                      key={`${generation}:${step_id}:${name}`}
-                      className="flex flex-wrap items-baseline justify-between gap-x-2"
-                    >
-                      <span className="font-medium text-ink">{spanName[name] ?? name}</span>
-                      <span className="font-mono text-[11px] tabular-nums text-muted">
-                        {kind === 'tool' ? 'tool · ' : ''}G{generation} · 拍 {step_id} ·{' '}
-                        {durationMs.toFixed(2)} ms
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                <TraceSpans spans={current.spans} />
               ) : (
                 <Empty>暂无已记录的耗时。</Empty>
               )}

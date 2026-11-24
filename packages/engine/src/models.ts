@@ -7,9 +7,16 @@ import {
   type Models,
 } from '@earendil-works/pi-ai';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
-import { type Static, type TSchema, Type } from '@sinclair/typebox';
+import { Type } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
-import type { ModelCatalogEntry, ModelStatus } from './model-protocol.js';
+import type { ModelCatalogEntry } from './model-protocol.js';
+import { type ModelGateway, ModelGenerationError } from './structured-model.js';
+
+export {
+  type ModelGateway,
+  ModelGenerationError,
+  type StructuredModelRequest,
+} from './structured-model.js';
 
 // Scope the UI to built-in providers that take a single API key and accept injected fetch.
 const providerIds = ['openai', 'anthropic', 'deepseek', 'moonshotai', 'openrouter'];
@@ -32,41 +39,7 @@ export interface ModelGatewayOptions {
   fetch?: typeof globalThis.fetch;
 }
 
-export interface StructuredModelRequest<S extends TSchema> {
-  schema: S;
-  prompt: string;
-  timeoutMs?: number;
-  maxTokens?: number;
-}
-
-export interface ModelGateway {
-  getStatus(): Promise<ModelStatus>;
-  getCatalog(): readonly ModelCatalogEntry[];
-  setByok(credentials: unknown): boolean;
-  clearByok(): void;
-  generate<S extends TSchema>(
-    request: StructuredModelRequest<S>,
-  ): Promise<{ value: Static<S>; durationMs: number }>;
-}
-
 type Selection = { model: Model<Api> } & ({ source: 'env' } | { source: 'byok'; apiKey: string });
-
-type FailureCode =
-  | 'model_offline'
-  | 'model_timeout'
-  | 'model_request_failed'
-  | 'model_invalid_output'
-  | 'model_invalid_options';
-
-export class ModelGenerationError extends Error {
-  constructor(
-    public readonly code: FailureCode,
-    public readonly durationMs: number,
-  ) {
-    super(code);
-    this.name = 'ModelGenerationError';
-  }
-}
 
 function authContext(readEnv: ModelGatewayOptions['readEnv']) {
   return {
@@ -135,16 +108,24 @@ function createGateway(
     clearByok() {
       byok = undefined;
     },
-    async generate({ schema, prompt, timeoutMs = 30_000, maxTokens = 2048 }) {
+    async generate({
+      schema,
+      prompt,
+      timeoutMs = 30_000,
+      maxTokens = 2048,
+      attempts = maxAttempts,
+    }) {
       const started = performance.now();
       const elapsed = () => Math.round(performance.now() - started);
-      const fail = (code: FailureCode) => new ModelGenerationError(code, elapsed());
+      const fail = (code: ModelGenerationError['code']) =>
+        new ModelGenerationError(code, elapsed());
       if (
         !Number.isSafeInteger(timeoutMs) ||
         timeoutMs < 1 ||
         timeoutMs > 60_000 ||
         !Number.isSafeInteger(maxTokens) ||
-        maxTokens < 1
+        maxTokens < 1 ||
+        (attempts !== 1 && attempts !== maxAttempts)
       ) {
         throw fail('model_invalid_options');
       }
@@ -162,7 +143,7 @@ function createGateway(
         if (!selected) throw fail('model_offline');
         const { model } = selected;
         const parameters = Type.Object({ value: schema }, { additionalProperties: false });
-        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        for (let attempt = 0; attempt < attempts; attempt++) {
           const completion = registry.completeSimple(
             model,
             {

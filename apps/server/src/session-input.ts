@@ -13,5 +13,15 @@ export const ResumeSchema = Type.Union([
   EmptyBody,
   Type.Object({ generation, last_played_step_id: positiveId }, strict),
 ]);
-export const AnswerSchema = Type.Object({ generation, ask_step_id: positiveId, text }, strict);
+export const AnswerSchema = Type.Union([
+  Type.Object({ generation, ask_step_id: positiveId, text }, strict),
+  Type.Object(
+    {
+      generation,
+      ask_step_id: positiveId,
+      option_id: Type.String({ pattern: '^[a-zA-Z0-9_-]{1,48}$' }),
+    },
+    strict,
+  ),
+]);
 export const InterruptSchema = Type.Object({ generation, last_played_step_id, text }, strict);

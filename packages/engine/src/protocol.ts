@@ -93,20 +93,44 @@ export const SpeakActionSchema = Type.Object({
   checkpoint: Type.Optional(Type.Literal('verify')),
 });
 
-export const AskActionSchema = Type.Object({
+const askFields = {
   type: Type.Literal('ask'),
   step_id: StepIdSchema,
   card_id: Type.String({ minLength: 1 }),
   prompt: Type.String({ minLength: 1 }),
   hint: Type.Optional(Type.String({ minLength: 1 })),
-  mode: Type.Union([Type.Literal('open'), Type.Literal('choice')]),
-});
+  checkpoint: Type.Optional(Type.Literal('verify')),
+};
+
+export const AskOptionSchema = Type.Object(
+  { id: Type.String({ pattern: '^[a-zA-Z0-9_-]{1,48}$' }), label: Type.String({ minLength: 1 }) },
+  { additionalProperties: false },
+);
+export const OpenAskActionSchema = Type.Object(
+  { ...askFields, mode: Type.Literal('open') },
+  { additionalProperties: false },
+);
+export const ChoiceAskActionSchema = Type.Object(
+  {
+    ...askFields,
+    mode: Type.Literal('choice'),
+    options: Type.Optional(Type.Array(AskOptionSchema, { minItems: 2, maxItems: 4 })),
+  },
+  { additionalProperties: false },
+);
+export const AskActionSchema = Type.Union([OpenAskActionSchema, ChoiceAskActionSchema]);
 
 export const KeypointCompleteActionSchema = Type.Object({
   type: Type.Literal('keypoint_complete'),
   step_id: StepIdSchema,
   keypoint_id: Type.String({ minLength: 1 }),
   summary: Type.Optional(Type.String({ minLength: 1 })),
+});
+
+export const KeypointUnverifiedActionSchema = Type.Object({
+  type: Type.Literal('keypoint_unverified'),
+  step_id: StepIdSchema,
+  keypoint_id: Type.String({ minLength: 1 }),
 });
 
 export const ActionSchema = Type.Union([
@@ -118,6 +142,7 @@ export const ActionSchema = Type.Union([
   SpeakActionSchema,
   AskActionSchema,
   KeypointCompleteActionSchema,
+  KeypointUnverifiedActionSchema,
 ]);
 export type Action = Static<typeof ActionSchema>;
 export type ActionKind = Action['type'];
@@ -130,7 +155,12 @@ export const KeypointSchema = Type.Object({
   title: Type.String({ minLength: 1 }),
   objective: Type.String({ minLength: 1 }),
   depth: DepthTagSchema,
-  status: Type.Union([Type.Literal('pending'), Type.Literal('active'), Type.Literal('completed')]),
+  status: Type.Union([
+    Type.Literal('pending'),
+    Type.Literal('active'),
+    Type.Literal('completed'),
+    Type.Literal('unverified'),
+  ]),
 });
 export type Keypoint = Static<typeof KeypointSchema>;
 

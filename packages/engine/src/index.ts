@@ -101,3 +101,4 @@ export {
   truncateOnInterrupt,
 } from './state.js';
 export { sanitizeSvg } from './static-svg.js';
+export type { LessonBasis, TeacherDiagnosis, TeacherTurnTrace } from './teacher-protocol.js';

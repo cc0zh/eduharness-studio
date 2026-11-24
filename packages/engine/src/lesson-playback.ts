@@ -3,7 +3,6 @@ import { Value } from '@sinclair/typebox/value';
 import {
   type Action,
   ActionBatchSchema,
-  type ActionKind,
   ActionSchema,
   type Keypoint,
   KeypointSchema,
@@ -68,9 +67,8 @@ export function readLessonGeneration(input: unknown): number | undefined {
   return Value.Check(LessonStreamSchema, input) ? input.generation : undefined;
 }
 
-export type ActionDraft = {
-  [Kind in ActionKind]: Omit<Extract<Action, { type: Kind }>, 'step_id'>;
-}[ActionKind];
+type Unnumbered<T> = T extends Action ? Omit<T, 'step_id'> : never;
+export type ActionDraft = Unnumbered<Action>;
 
 export type ScriptSection = Omit<Keypoint, 'status'> & {
   beats: readonly ActionDraft[];
@@ -112,14 +110,16 @@ export function projectKeypointProgress(
   keypoints: readonly Keypoint[],
   played: readonly Action[],
 ): { keypoints: Keypoint[]; currentIndex: number } {
-  const completed = new Set(
-    played.flatMap((action) => (action.type === 'keypoint_complete' ? [action.keypoint_id] : [])),
-  );
-  const firstOpen = keypoints.findIndex(({ id }) => !completed.has(id));
+  const outcomes = new Map<string, 'completed' | 'unverified'>();
+  for (const action of played) {
+    if (action.type === 'keypoint_complete') outcomes.set(action.keypoint_id, 'completed');
+    if (action.type === 'keypoint_unverified') outcomes.set(action.keypoint_id, 'unverified');
+  }
+  const firstOpen = keypoints.findIndex(({ id }) => !outcomes.has(id));
   return {
     keypoints: keypoints.map((keypoint, index) => ({
       ...keypoint,
-      status: completed.has(keypoint.id) ? 'completed' : index === firstOpen ? 'active' : 'pending',
+      status: outcomes.get(keypoint.id) ?? (index === firstOpen ? 'active' : 'pending'),
     })),
     currentIndex: firstOpen < 0 ? keypoints.length - 1 : firstOpen,
   };

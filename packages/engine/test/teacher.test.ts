@@ -1,0 +1,292 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { Type } from '@sinclair/typebox';
+import { Value } from '@sinclair/typebox/value';
+import { projectKeypointProgress } from '../src/lesson-playback.js';
+import { createFauxModelGateway, fauxAssistantMessage, fauxToolCall } from '../src/models.js';
+import type { Action } from '../src/protocol.js';
+import {
+  createTeacherPlanner,
+  type TeacherTurnContext,
+  type TeacherTurnOutput,
+  TeacherTurnOutputSchema,
+} from '../src/teacher.js';
+import { guardTeacherTurn, shuffleAskOptions } from '../src/teacher-guardrails.js';
+
+const context: TeacherTurnContext = {
+  topic: '奇偶性',
+  input: { kind: 'opening' },
+  keypoints: [
+    { id: 'pairs', title: '配对', objective: '理解配对', depth: 'intuition', status: 'active' },
+    { id: 'sum', title: '和', objective: '应用奇偶性', depth: 'application', status: 'pending' },
+  ],
+  state: 'intake',
+  played: [],
+  progress: { insertedCount: 0, lowEffortStreak: 0, highWater: 0, truncatedCardIds: [] },
+  generation: 1,
+  seed: 'test',
+};
+
+const options = [
+  { id: 'paired', label: '恰好成对' },
+  { id: 'odd', label: '剩下一个' },
+];
+const drafts: TeacherTurnOutput['actions'] = [
+  { type: 'board', column: 1, card_id: 'c1', content: '让积木两两站在一起。' },
+  { type: 'highlight', card_id: 'c1', target_text: '两两', style: 'circle' },
+  { type: 'speak', text: '想象在桌面上摆出五块积木。' },
+  { type: 'ask', card_id: 'q1', mode: 'choice', prompt: '桌上会有什么？', options },
+];
+
+function output(
+  status: TeacherTurnOutput['diagnosis']['status'],
+  actions = drafts,
+): TeacherTurnOutput {
+  return { diagnosis: { status, summary: '观察配对', strategy: '换例子推断' }, actions };
+}
+
+const transferAsk: Action = {
+  type: 'ask',
+  mode: 'open',
+  checkpoint: 'verify',
+  step_id: 10,
+  card_id: 'q0',
+  prompt: '换成七块如何配对？',
+};
+const answered: TeacherTurnContext = {
+  ...context,
+  state: 'handoff',
+  played: [transferAsk],
+  input: { kind: 'answer', ask_step_id: 10, text: '三对，剩一块。' },
+  progress: { ...context.progress, highWater: 10 },
+};
+
+const completion: TeacherTurnOutput['actions'] = [
+  { type: 'speak', checkpoint: 'verify', text: '三对后确实剩一块，所以七是奇数。' },
+  { type: 'keypoint_complete', keypoint_id: 'pairs' },
+  { type: 'board', column: 2, card_id: 'next', content: '把两个数的积木并排放。' },
+  { type: 'ask', card_id: 'next-ask', mode: 'open', prompt: '两堆拼在一起会怎样？' },
+];
+
+function rejection(result: ReturnType<typeof guardTeacherTurn>, regex: RegExp) {
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.match(result.reasons.join('\n'), regex);
+}
+
+test('teacher draft schema bounds beats and rejects model-owned IDs and options on open asks', () => {
+  const good = output('opening');
+  assert.ok(Value.Check(TeacherTurnOutputSchema, good));
+  assert.equal(Value.Check(TeacherTurnOutputSchema, { ...good, actions: drafts.slice(1) }), false);
+  assert.equal(
+    Value.Check(TeacherTurnOutputSchema, { ...good, actions: [...drafts, ...drafts, drafts[0]] }),
+    false,
+  );
+  assert.equal(
+    Value.Check(TeacherTurnOutputSchema, {
+      ...good,
+      actions: [{ ...drafts[0], step_id: 1 }, ...drafts.slice(1)],
+    }),
+    false,
+  );
+  assert.equal(
+    Value.Check(TeacherTurnOutputSchema, {
+      ...good,
+      actions: [...drafts.slice(0, -1), { ...drafts.at(-1), mode: 'open' }],
+    }),
+    false,
+  );
+});
+
+test('opening protects handoff, layout and acknowledged board references', () => {
+  const highWater = {
+    ...context,
+    progress: { ...context.progress, highWater: 19, truncatedCardIds: ['discarded'] },
+  };
+  const planned = guardTeacherTurn(highWater, output('opening'));
+  assert.ok(planned.ok);
+  assert.deepEqual(
+    planned.actions.map(({ step_id }) => step_id),
+    [20, 21, 22, 23],
+  );
+  rejection(
+    guardTeacherTurn(
+      highWater,
+      output('opening', [
+        { type: 'board', column: 1, card_id: 'discarded', content: 'x'.repeat(181) },
+        { type: 'highlight', card_id: 'ghost', target_text: 'ghost', style: 'circle' },
+        { type: 'speak', text: '正确答案是第二个。' },
+        { type: 'speak', text: 'x'.repeat(141) },
+      ]),
+    ),
+    /truncated beat[\s\S]*acknowledged[\s\S]*reveals[\s\S]*140[\s\S]*end at ask/,
+  );
+  assert.deepEqual(shuffleAskOptions(options, 'repeat'), shuffleAskOptions(options, 'repeat'));
+  assert.equal(
+    new Set(Array.from({ length: 8 }, (_, i) => shuffleAskOptions(options, `${i}`)[0].id)).size,
+    2,
+  );
+});
+
+test('mastery needs a played transfer ask, current answer, spoken check and active keypoint', () => {
+  assert.ok(guardTeacherTurn(answered, output('mastered', completion)).ok);
+  rejection(guardTeacherTurn(answered, output('misconception', completion)), /requires mastered/);
+  rejection(
+    guardTeacherTurn(
+      { ...answered, played: [{ ...transferAsk, checkpoint: undefined }] },
+      output('mastered', completion),
+    ),
+    /acknowledged verify ask/,
+  );
+  rejection(
+    guardTeacherTurn(
+      { ...answered, input: { kind: 'interrupt', text: '我懂了' } },
+      output('mastered', completion),
+    ),
+    /substantive answer/,
+  );
+  rejection(
+    guardTeacherTurn(
+      answered,
+      output('mastered', [{ type: 'speak', text: '好。' }, ...completion.slice(1)]),
+    ),
+    /immediately before completion/,
+  );
+});
+
+test('prerequisites go before the active point and are bounded by both caps', () => {
+  const patch = {
+    ...output('missing_prereq'),
+    insert_keypoint: {
+      id: 'groups',
+      title: '会分组',
+      objective: '两块一组',
+      depth: 'intuition' as const,
+    },
+  };
+  const result = guardTeacherTurn(answered, patch);
+  assert.ok(result.ok);
+  assert.deepEqual(
+    result.keypoints.map(({ id, status }) => [id, status]),
+    [
+      ['groups', 'active'],
+      ['pairs', 'pending'],
+      ['sum', 'pending'],
+    ],
+  );
+  assert.deepEqual(result.trace.inserted, { id: 'groups', title: '会分组', before: 'pairs' });
+  rejection(
+    guardTeacherTurn({ ...answered, progress: { ...answered.progress, insertedCount: 2 } }, patch),
+    /at most two/,
+  );
+  const six = [
+    ...context.keypoints,
+    ...[1, 2, 3, 4].map((i) => ({ ...context.keypoints[1], id: `extra-${i}` })),
+  ];
+  rejection(guardTeacherTurn({ ...answered, keypoints: six }, patch), /six total/);
+  rejection(
+    guardTeacherTurn(answered, { ...patch, diagnosis: output('clarifying').diagnosis }),
+    /insert_keypoint/,
+  );
+});
+
+test('bare replies require first a two-choice scaffold, then honest unverified progress', () => {
+  const low: TeacherTurnContext = {
+    ...answered,
+    input: { kind: 'answer', ask_step_id: 10, text: '１！' },
+  };
+  rejection(guardTeacherTurn(low, output('mastered', completion)), /low_effort/);
+  const first = guardTeacherTurn(low, output('low_effort'));
+  assert.ok(first.ok);
+  assert.equal(first.progress.lowEffortStreak, 1);
+  assert.equal(first.actions.at(-1)?.type, 'ask');
+  const again = { ...low, progress: first.progress };
+  rejection(guardTeacherTurn(again, output('low_effort')), /advance .*keypoint_unverified/);
+  const advance = output('low_effort', [
+    drafts[0],
+    { type: 'keypoint_unverified', keypoint_id: 'pairs' },
+    ...drafts.slice(2),
+  ]);
+  const second = guardTeacherTurn(again, advance);
+  assert.ok(second.ok);
+  assert.equal(second.trace.unverified, 'pairs');
+  assert.equal(
+    second.progress.lowEffortStreak,
+    2,
+    'keep the second low-effort attempt pending until its outcome is played',
+  );
+  assert.deepEqual(
+    projectKeypointProgress(context.keypoints, second.actions).keypoints.map(
+      ({ status }) => status,
+    ),
+    ['unverified', 'active'],
+  );
+  const skip = { ...low, input: { kind: 'interrupt' as const, text: '请跳过这题' } };
+  assert.ok(guardTeacherTurn(skip, advance).ok);
+  const selectedSkip = {
+    ...low,
+    input: { kind: 'answer' as const, ask_step_id: 10, option_id: 'skip', text: '跳过这题' },
+  };
+  const selectedSkipTurn = output('low_effort', [
+    drafts[0],
+    { type: 'keypoint_unverified', keypoint_id: 'pairs' },
+    { type: 'speak', text: '先保留这条配对线索。' },
+    drafts[3],
+  ]);
+  const selectedSkipResult = guardTeacherTurn(selectedSkip, selectedSkipTurn);
+  assert.ok(
+    selectedSkipResult.ok,
+    selectedSkipResult.ok ? undefined : selectedSkipResult.reasons.join('\n'),
+  );
+});
+
+const fauxResult = (value: Parameters<typeof fauxToolCall>[1][string]) =>
+  fauxAssistantMessage(fauxToolCall('emit_result', { value }), { stopReason: 'toolUse' });
+
+test('faux planner caps tools, redacts their spans and supplies concrete correction feedback', async () => {
+  const { gateway, setResponses, state } = createFauxModelGateway();
+  assert.ok(gateway.setByok({ provider: 'faux', modelId: 'faux-1', apiKey: 'faux-test-key' }));
+  const plan = createTeacherPlanner(gateway, [
+    {
+      name: 'mock_sum',
+      description: 'mock a bounded calculation',
+      parameters: Type.Object({ amount: Type.Number(), token: Type.String() }),
+      run: () => ({ sum: 4, token: 'not-on-the-trace', note: 'also hidden' }),
+    },
+  ]);
+  const call = fauxResult({ tool: 'mock_sum', arguments: { amount: 2, token: 'fake-sensitive' } });
+  setResponses([
+    call,
+    (request) => {
+      const content = request.messages.at(-1)?.content;
+      const prompt = typeof content === 'string' ? content : JSON.stringify(content);
+      assert.match(prompt, /sum.{0,6}4/);
+      assert.equal(prompt.includes('not-on-the-trace'), false);
+      assert.equal(prompt.includes('fake-sensitive'), false);
+      return call;
+    },
+    fauxResult(output('mastered', completion)),
+    (request) => {
+      const content = request.messages.at(-1)?.content;
+      const prompt = typeof content === 'string' ? content : JSON.stringify(content);
+      assert.match(prompt, /keypoint_complete requires mastered/);
+      assert.match(prompt, /mock_sum/);
+      return fauxResult(output('opening'));
+    },
+  ]);
+  const accepted = await plan(context, []);
+  assert.ok(accepted.ok, !accepted.ok ? JSON.stringify(accepted) : undefined);
+  assert.equal(accepted.trace.guardrails.length, 1);
+  const tools = accepted.spans.filter(({ kind }) => kind === 'tool');
+  assert.equal(tools.length, 2);
+  assert.deepEqual(tools[0].input, { amount: 2 });
+  assert.deepEqual(tools[0].result, { sum: 4, note: '[已隐藏]' });
+  assert.equal(state.callCount, 4);
+  setResponses([call, call, call, call, call, fauxResult(output('opening'))]);
+  const rejected = await plan(context, []);
+  assert.equal(rejected.ok, false);
+  assert.deepEqual(
+    rejected.trace.guardrails.map(({ attempt }) => attempt),
+    [1, 2, 3],
+  );
+  assert.equal(rejected.spans.filter(({ kind }) => kind === 'tool').length, 2);
+});

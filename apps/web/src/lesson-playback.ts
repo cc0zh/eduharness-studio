@@ -107,6 +107,7 @@ export function beatAutoplayDelayMs(previous?: Action): number {
     case 'ask':
       return 240;
     case 'keypoint_complete':
+    case 'keypoint_unverified':
       return 1100;
     case 'highlight':
       return 1300;

@@ -49,7 +49,7 @@
   - `verify` 过关检验优先采用**变式近迁移判断**（换数值或边界条件），既降低打字摩擦又防语感蒙混，与 `eduharness` V 维同源。
   - 面对 `"1"` / `"继续"` / `"直接讲"` 等 `low_effort` 敷衍输入：第 1 次**不死锁也不放水**（不发 `keypoint_complete`，自动降级为 2 选 1 极简直觉点选题）；连续敷衍或明确要求跳过时继续推进不劝退，但诚实记录为 `unverified`（绝不伪装 `mastered`），并在 X-Ray 透明标注。
 - **状态机硬护栏、排版节奏约束与自纠偏**：
-  - 吸取 `eduharness` 阶段 3 教训，**严禁在 prompt 或代码中硬塞固定交权套话**；改由纯引擎状态机硬校验（`diagnosis.status !== 'mastered'` 或未经历 `ask → 学生作答 → speak(checkpoint='verify')` 均禁止发出 `keypoint_complete`；首回合禁直接揭底；非结课回合须停在 `ask`；约束单张板书/字幕长度与单回合 4–8 拍以守住 M1.5 排版质感）。
+  - 吸取 `eduharness` 阶段 3 教训，**严禁在 prompt 或代码中硬塞固定交权套话**；改由纯引擎状态机硬校验（`diagnosis.status !== 'mastered'` 或未经历已上屏的 `ask(checkpoint='verify') → 学生作答 → speak(checkpoint='verify')` 均禁止发出 `keypoint_complete`；首回合禁直接揭底；非结课回合须停在 `ask`；约束单张板书/字幕长度与单回合 4–8 拍以守住 M1.5 排版质感）。跳过由独立的 `keypoint_unverified` 拍推进，不计过关。
   - 违规时附具体错误原因触发自纠偏重规划（最多重试 2 次），拦截与重试轨迹写入 `SessionTrace`；超限则报错并保住已上屏现场不污染会话。服务端采用「事务外异步调模型 + 会话级并发互斥锁 + 校验通过后短事务原子落盘」。
 - **受控计算工具 `calc_verify`**：
   - 在 `packages/engine` 实现零 `eval`、零网络的安全算式/分数/概率求值器；作为最多 2 步轻工具循环挂入 `pi-ai`，需要核对数值或构造反例时先调用 `calc_verify` 再定稿板书，把工具名、脱敏入参/结果与耗时写入 `LessonTraceSpan`（扩展 `kind: 'offline' | 'model' | 'tool'`）。

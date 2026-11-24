@@ -42,9 +42,11 @@ function summarizeAction(action: Action): string | null {
     case 'speak':
       return action.text;
     case 'ask':
-      return `[提问] ${action.prompt}`;
+      return `[提问] ${action.prompt}${action.mode === 'choice' && action.options ? `\n选项: ${action.options.map(({ label }) => label).join(' / ')}` : ''}`;
     case 'keypoint_complete':
       return action.summary ? `[过关] ${action.summary}` : null;
+    case 'keypoint_unverified':
+      return '[要点未验证]';
     case 'new_column':
     case 'new_page':
       return null;

@@ -6,9 +6,9 @@ import type {
 } from '@eduharness-studio/engine';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { errorMessage, request } from '@/lib/courses';
+import { ApiRequestError, errorMessage, request } from '@/lib/courses';
 import { beatAutoplayDelayMs } from './lesson-playback';
-import { addRecord, playbackOwner } from './lesson-playback-state';
+import { applyPlaybackReceipt, playbackOwner } from './lesson-playback-state';
 import { restartLesson, resumeLesson, sessionPath } from './lesson-session';
 import { subscribeLesson } from './lesson-stream';
 import {
@@ -142,9 +142,8 @@ export function useLessonPlayback(lessonPath: string) {
             setNextBeat(undefined);
             return;
           }
-          const { record } = receipt;
           clearPendingProgress(id);
-          setSession((snapshot) => addRecord(snapshot, record));
+          setSession((snapshot) => applyPlaybackReceipt(snapshot, receipt));
         },
         () => {
           if (owner.current !== key) return;
@@ -222,9 +221,14 @@ export function useLessonPlayback(lessonPath: string) {
 
   const canToggle = Boolean(ready && !busy && !end && !failedWrite && askStep === null);
   const canStep = canToggle && !writing && !stepRequested;
-  const canAnswer = Boolean(
-    ready && askStep !== null && !end && !writing && !failedWrite && !busy && answerText.trim(),
-  );
+  const canAnswer =
+    ready &&
+    askStep !== null &&
+    askStep === session?.last_played_step_id &&
+    !end &&
+    !writing &&
+    !failedWrite &&
+    !busy;
   const canInterrupt = ready && !end && !busy;
   const canRestart = Boolean(!busy && (sessionId || end === 'closed'));
 
@@ -248,7 +252,15 @@ export function useLessonPlayback(lessonPath: string) {
       await work(isCurrent);
       return true;
     } catch (reason) {
-      if (isCurrent()) setError(`${errorMessage(reason)} 如未能继续，请刷新恢复课堂。`);
+      if (isCurrent()) {
+        if (reason instanceof ApiRequestError && reason.code === 'stale_generation') {
+          setReady(false);
+          setNextBeat(undefined);
+          setError('课堂进度已更新。请刷新页面以在这里接着上课。');
+        } else {
+          setError(`${errorMessage(reason)} 如未能继续，请刷新恢复课堂。`);
+        }
+      }
       return false;
     } finally {
       settle(operation);
@@ -258,6 +270,7 @@ export function useLessonPlayback(lessonPath: string) {
   return {
     sessionId,
     generation,
+    keypoints: session?.keypoints,
     played: session?.playedActions ?? [],
     records: session?.records ?? [],
     pendingBeat: nextBeat,
@@ -289,17 +302,28 @@ export function useLessonPlayback(lessonPath: string) {
     answerText,
     canAnswer,
     setAnswerText,
-    async submitAnswer() {
-      if (!canAnswer || !sessionId || generation === undefined || askStep === null) return;
-      const text = answerText.trim();
+    async submitAnswer(optionId?: string) {
+      if (
+        !canAnswer ||
+        !sessionId ||
+        generation === undefined ||
+        askStep === null ||
+        owner.current !== playbackOwner(sessionId, generation) ||
+        displayed.current !== askStep
+      )
+        return;
+      const answer = optionId === undefined ? { text: answerText.trim() } : { option_id: optionId };
+      if ('text' in answer && !answer.text) return;
       await mutate('answer', async (isCurrent) => {
-        const { record } = await request<PlaybackWriteReceipt>(`${sessionPath(sessionId)}/answer`, {
+        const receipt = await request<PlaybackWriteReceipt>(`${sessionPath(sessionId)}/answer`, {
           generation,
           ask_step_id: askStep,
-          text,
+          ...answer,
         });
         if (!isCurrent()) return;
-        setSession((snapshot) => addRecord(snapshot && { ...snapshot, askStep: null }, record));
+        setSession((snapshot) =>
+          applyPlaybackReceipt(snapshot && { ...snapshot, askStep: null }, receipt),
+        );
         setAnswerText('');
         pause(false);
       });

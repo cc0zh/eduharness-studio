@@ -14,17 +14,20 @@ test('offline inspection is read-only, grades acknowledged frames and returns ge
   const database = openStudioDatabase(':memory:');
   t.after(() => database.close());
   const app = createServerApp({ database });
-  const store = createSessionStore(database);
+  const store = createSessionStore(database, async () => {
+    throw new Error('Offline sessions do not use the teacher planner');
+  });
   const course = demoCourses[0];
   const lesson = course.units[0].lessons[0];
-  const created = store.start(
-    course.id,
-    lesson.id,
-    course.topic,
-    () => offlineLesson(course, lesson),
-    false,
-  );
-  assert.ok(created.snapshot && !('error' in created.snapshot));
+  const created = await store.start({
+    courseId: course.id,
+    lessonId: lesson.id,
+    topic: course.topic,
+    buildScript: () => offlineLesson(course, lesson),
+    restart: false,
+    live: false,
+  });
+  assert.ok('snapshot' in created);
   const { session_id: id, generation } = created.snapshot;
   const endpoint = `/api/sessions/${id}`;
   const quality = (body: object) =>

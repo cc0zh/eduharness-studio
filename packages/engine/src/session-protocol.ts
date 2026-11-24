@@ -1,7 +1,9 @@
 import { type Static, Type } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
+import { LessonKeypointsSchema } from './lesson-playback.js';
 import { type Action, ActionSchema } from './protocol.js';
 import type { TeachingTransition } from './state.js';
+import type { TeacherTurnTrace } from './teacher-protocol.js';
 
 export type InterruptIntent = 'explain' | 'answer-request' | 'continue';
 
@@ -74,6 +76,7 @@ export const SessionSnapshotSchema = Type.Object(
     records: Type.Array(LessonRecordSchema),
     state: stateSchema,
     askStep: Type.Union([positiveId, Type.Null()]),
+    keypoints: Type.Optional(LessonKeypointsSchema),
   },
   { additionalProperties: false },
 );
@@ -95,6 +98,7 @@ export function readLessonEnd(input: unknown): LessonEnd | undefined {
 export interface PlaybackWriteReceipt {
   ok: true;
   record?: LessonRecord;
+  keypoints?: SessionSnapshot['keypoints'];
 }
 
 export type PlaybackProgressResult =
@@ -104,11 +108,13 @@ export type PlaybackProgressResult =
     };
 
 export interface LessonTraceSpan {
-  kind: 'offline' | 'tool';
+  kind: 'offline' | 'model' | 'tool';
   name: string;
   durationMs: number;
   generation: number;
   step_id: number;
+  input?: unknown;
+  result?: unknown;
 }
 
 export interface SessionTrace {
@@ -117,4 +123,6 @@ export interface SessionTrace {
   queued: Pick<Action, 'step_id' | 'type'>[];
   transitions: TeachingTransition[];
   spans: LessonTraceSpan[];
+  playedStepIds?: number[];
+  teacherTurns?: TeacherTurnTrace[];
 }

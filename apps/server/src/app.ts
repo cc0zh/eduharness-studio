@@ -1,5 +1,6 @@
 import { PROTOCOL_VERSION } from '@eduharness-studio/engine';
 import { createModelGateway, type ModelGateway } from '@eduharness-studio/engine/models';
+import type { TeacherTool } from '@eduharness-studio/engine/teacher';
 import { Hono } from 'hono';
 import { createCourseRoutes } from './course-routes.js';
 import { createCourseStore } from './course-store.js';
@@ -10,11 +11,13 @@ import { createModelRoutes } from './model-routes.js';
 export interface ServerAppOptions {
   database: StudioDatabase;
   modelGateway?: ModelGateway;
+  teacherTools?: readonly TeacherTool[];
 }
 
 export function createServerApp({
   database,
   modelGateway = createModelGateway(),
+  teacherTools,
 }: ServerAppOptions): Hono {
   const app = new Hono();
 
@@ -51,6 +54,6 @@ export function createServerApp({
   const courses = createCourseStore(database);
   app.route('/api', createModelRoutes(modelGateway));
   app.route('/api', createCourseRoutes(courses));
-  app.route('/api', createLessonRoutes(courses, database));
+  app.route('/api', createLessonRoutes(courses, database, modelGateway, teacherTools));
   return app;
 }

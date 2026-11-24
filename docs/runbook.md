@@ -44,8 +44,9 @@ npm run dev
 
 - 顶栏「模型与自带密钥」从 `/api/model` 读取状态和目录。临时 Key 仅保存在本地服务进程，刷新页面会读回状态（不读回 Key）；清空或重启服务回落环境配置，无 Key 则离线。
 - 服务启动读取仓库根 `.env`（可用 `STUDIO_ENV_FILE` 指向独立文件）；同名进程环境变量优先。使用供应商原生变量（如 `OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`DEEPSEEK_API_KEY`），可用 `STUDIO_MODEL_PROVIDER` / `STUDIO_MODEL_ID` 指定模型；未指定则用首个有凭据的目录项。模型调用可经 `HTTPS_PROXY`，支持 `NO_PROXY`。
-- 当前目录限 `pi-ai` 支持单 Key 且可注入代理传输的 OpenAI、Anthropic、DeepSeek、Moonshot AI、OpenRouter。`live` 只表示已配置，不验证 Key；本切片的示范课、建课与上课仍离线。真实冒烟须先获费用授权。
+- 当前目录限 `pi-ai` 支持单 Key 且可注入代理传输的 OpenAI、Anthropic、DeepSeek、Moonshot AI、OpenRouter。保存配置时只更新模型设置。带模型配置新开或重开非示范课会调用 Teacher Agent；运行中模型不可用时保留已提交作答，并以离线方式将未完成要点标为未验证。真实试学前先取得费用授权。
 - 复验顶栏 BYOK：`node --test test/browser-m2-1.test.mjs`。设置 `STUDIO_MODEL_SCREENSHOTS` 可保存 Chromium 截图。
+- 复验教师回合使用 `node --test test/browser-m2-2.test.mjs`。该用例注入独立 faux 网关并使用临时 SQLite。设置 `STUDIO_TEACHER_SCREENSHOTS` 可保存 Chromium 截图。
 
 ## 常见排障
 

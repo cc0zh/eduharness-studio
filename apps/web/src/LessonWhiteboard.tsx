@@ -116,7 +116,8 @@ function PlayingLesson({
         select: (number, preferredStep) => select(number, dialogue, preferredStep),
       }
     : undefined;
-  const progress = projectKeypointProgress(keypoints, playback.played);
+  const progress = projectKeypointProgress(playback.keypoints ?? keypoints, playback.played);
+  const unverifiedCount = progress.keypoints.filter(({ status }) => status === 'unverified').length;
   const askAction = playback.played.find(
     ({ type, step_id }) => type === 'ask' && step_id === playback.askStep,
   );
@@ -222,6 +223,7 @@ function PlayingLesson({
       <span className="sr-only" aria-live="polite">
         {progress.keypoints.filter(({ status }) => status === 'completed').length}/
         {progress.keypoints.length} 个要点已过关
+        {unverifiedCount > 0 && `，${unverifiedCount} 个未验证`}
       </span>
     </div>
   );
