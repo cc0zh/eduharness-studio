@@ -1,21 +1,12 @@
-import { ArrowLeft, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogClose,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPopup,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { coursePath } from '@/lib/courses';
 import { cn } from '@/lib/utils';
 import { CoursePage } from './CoursePage';
 import { HomePage } from './HomePage';
+import { ModelStatusDialog } from './ModelStatusDialog';
 
 export function App() {
   const { pathname } = window.location;
@@ -125,42 +116,5 @@ export function App() {
         </main>
       )}
     </div>
-  );
-}
-
-function ModelStatusDialog({ compact }: { compact: boolean }) {
-  return (
-    <Dialog>
-      <DialogTrigger
-        render={
-          <button
-            type="button"
-            aria-label={compact ? '离线确定性模式（模型与 BYOK）' : undefined}
-            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted transition-colors hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-ink"
-          />
-        }
-      >
-        <SlidersHorizontal className="size-3.5" aria-hidden="true" />
-        <span className={compact ? 'hidden sm:inline' : undefined}>离线确定性模式</span>
-      </DialogTrigger>
-      <DialogPopup>
-        <DialogHeader>
-          <DialogTitle>模型与自带密钥（BYOK）</DialogTitle>
-          <DialogDescription>当前运行于零密钥离线确定性课堂模式。</DialogDescription>
-        </DialogHeader>
-        <div className="mt-4 space-y-3 text-xs leading-relaxed text-ink-secondary">
-          <p className="border-l-2 border-accent pl-3 text-ink">
-            本阶段（M1.5）零模型费用，所有示范课与主题建课均由本地确定性引擎驱动，不发任何外部网络请求。
-          </p>
-          <p>
-            下一阶段（M2）将在此开放内存态 BYOK 供应商与密钥配置：密钥仅驻留服务端进程内存，不落盘
-            SQLite，清空即可随时回落离线模式。
-          </p>
-        </div>
-        <DialogFooter>
-          <DialogClose render={<Button size="sm">知道了</Button>} />
-        </DialogFooter>
-      </DialogPopup>
-    </Dialog>
   );
 }

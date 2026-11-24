@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { offlineServerEnv } from './studio-test-env.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const devScript = join(root, 'scripts', 'dev.mjs');
@@ -61,11 +64,14 @@ function terminate(child) {
   });
 }
 
-test('M0 E2E smoke: scripts/dev.mjs launches Hono server + Vite web and proxies /api/health', async () => {
+test('M0 E2E smoke: scripts/dev.mjs launches Hono server + Vite web and proxies /api/health', async (t) => {
   const apiPort = await getFreePort();
   const webPort = await getFreePort();
+  const directory = mkdtempSync(join(tmpdir(), 'studio-smoke-'));
+  t.after(() => rmSync(directory, { force: true, recursive: true }));
   const env = {
-    ...process.env,
+    ...offlineServerEnv(join(directory, '.env')),
+    HTTPS_PROXY: 'http://[malformed', // A model transport error must not disable offline startup.
     PORT: String(apiPort),
     WEB_PORT: String(webPort),
     STUDIO_DB_PATH: ':memory:',
@@ -98,6 +104,7 @@ test('M0 E2E smoke: scripts/dev.mjs launches Hono server + Vite web and proxies 
     assert.equal(health.service, 'eduharness-studio-server');
     assert.equal(health.sqlite, 'ok');
     assert.equal(health.protocolVersion, '0.2.0');
+    assert.equal(health.mode, 'offline');
     assert.ok(health.tables >= 3);
 
     const metaRes = await fetch(`http://127.0.0.1:${webPort}/api/meta`);

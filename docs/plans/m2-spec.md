@@ -9,7 +9,7 @@
   - 课程蓝图/懒解锁与静态 SVG 配图刻意**做薄做稳、宁缺毋滥**（非每课强求画图，优先结构化要点/表格/KaTeX 公式保住出版书房排版质感）。
 
 - **唯一模型边界与子路径隔离**：
-  - 仅 [packages/engine/src/models.ts](../../packages/engine/src/index.ts)（新增模块，通过 `packages/engine/package.json` 暴露 `@eduharness-studio/engine/models` 子路径）允许导入 `@earendil-works/pi-ai`；**禁止从 `packages/engine/src/index.ts` 重导出**，确保前端 `apps/web` 零打包模型 SDK 且不触碰 [导入边界门禁](../../scripts/check-boundaries.mjs)。
+  - 仅 [packages/engine/src/models.ts](../../packages/engine/src/models.ts)（通过 `packages/engine/package.json` 暴露 `@eduharness-studio/engine/models` 子路径）允许导入 `@earendil-works/pi-ai`；**禁止从 `packages/engine/src/index.ts` 重导出**，确保前端 `apps/web` 零打包模型 SDK 且不触碰 [导入边界门禁](../../scripts/check-boundaries.mjs)。
   - 直接复用 `@earendil-works/pi-ai` 内置供应商注册表与鉴权体系，不手写各家 HTTP 适配器；`packages/engine` 保持零 `node:*` 耦合，环境变量读取、`.env` 加载与 `HTTPS_PROXY` 代理分发由 `apps/server` 注入。
 - **密钥安全与离线零回归**：
   - 支持 `.env` 与顶栏内存态 BYOK 配置；明文密钥**仅驻留服务端进程内存**，严禁写入 SQLite、日志、错误消息或浏览器持久化存储，接口永不回显明文密钥。
@@ -26,7 +26,7 @@
 
 - `models.ts` 对外提供统一结构化生成调用（带 TypeBox Schema 校验、超时控制、受控重试与 `durationMs` 采集）和当前运行态查询（`mode: 'offline' | 'live'`、已选 `provider` / `modelId`、来源 `env | byok | none`）。
 - 服务端新增轻量配置接口：`GET /api/model`（返回脱敏状态与可选供应商/模型目录）、`PUT /api/model`（写入内存态 BYOK 供应商、模型与 Key，不落盘）、`DELETE /api/model`（清空 BYOK 并回落 `.env` 或离线模式）。
-- 前端顶栏开放极简 BYOK 弹窗（接入现有 `Dialog` 原语），切换后立即反映在当前会话的后续建课、解锁与教学回合中。
+- 前端顶栏复用 `Dialog` 配置 BYOK；保存/清空立即反映在状态查询中。`live` 表示已配置，保存不发模型请求。M2-2、M2-3 再接入教学回合、建课和解锁；示范课仍离线。
 
 ### 2.2 自由主题建课、懒生成课节解锁与 `basis` 槽位
 

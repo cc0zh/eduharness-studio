@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { createConnection, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { offlineServerEnv } from './studio-test-env.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const host = '127.0.0.1';
@@ -57,7 +58,7 @@ function startNode(args, env) {
     }
     throw new Error(`Server never listened (${args.join(' ')}):\n${logs}`);
   }
-  return { child, closed, port };
+  return { child, closed, port, logs: () => logs };
 }
 
 function processTree() {
@@ -164,7 +165,7 @@ async function freePorts(count) {
 }
 
 export async function startBrowserFixture(t, { useNpmDev } = {}) {
-  const directory = mkdtempSync(join(tmpdir(), 'eduharness-m1-'));
+  const directory = mkdtempSync(join(tmpdir(), 'eduharness-browser-'));
   const database = join(directory, 'studio.sqlite');
   const nodes = [];
   const ports = new Set();
@@ -219,7 +220,7 @@ export async function startBrowserFixture(t, { useNpmDev } = {}) {
       databaseExisted,
       databaseDeleted: !existsSync(directory),
     };
-    console.log(`M1 browser cleanup ${JSON.stringify(cleanup)}`);
+    console.log(`Browser cleanup ${JSON.stringify(cleanup)}`);
     assert.deepEqual(
       results.filter(({ status }) => status === 'rejected'),
       [],
@@ -229,7 +230,7 @@ export async function startBrowserFixture(t, { useNpmDev } = {}) {
     assert.ok(cleanup.databaseDeleted);
   });
 
-  const env = { ...process.env, STUDIO_DB_PATH: database, NO_COLOR: '1', FORCE_COLOR: '0' };
+  const env = { ...offlineServerEnv(join(directory, '.env')), STUDIO_DB_PATH: database };
   let webPort;
   const { signal } = t;
   if (useNpmDev) {
@@ -274,7 +275,7 @@ export async function startBrowserFixture(t, { useNpmDev } = {}) {
   assert.equal((await health.json()).sqlite, 'ok');
   assert.ok(existsSync(database));
   console.log(
-    `M1 browser startup (${useNpmDev ? 'npm run dev' : 'isolated servers'}): ${url}; ports=${[...ports]}; SQLite=${database}`,
+    `Browser startup (${useNpmDev ? 'npm run dev' : 'isolated servers'}): ${url}; ports=${[...ports]}; SQLite=${database}`,
   );
 
   signal.throwIfAborted();
@@ -289,5 +290,12 @@ export async function startBrowserFixture(t, { useNpmDev } = {}) {
     if (message.type() === 'error') errors.push(message.text());
   });
   page.on('pageerror', (error) => errors.push(error.message));
-  return { page, url, errors };
+  const logs = () => nodes.map((node) => node.logs()).join('\n');
+  const databaseFiles = () =>
+    Object.fromEntries(
+      readdirSync(directory)
+        .filter((name) => name.startsWith('studio.sqlite'))
+        .map((name) => [name, readFileSync(join(directory, name))]),
+    );
+  return { page, url, errors, logs, databaseFiles };
 }

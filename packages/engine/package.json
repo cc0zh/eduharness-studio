@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./models": "./src/models.ts"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "1.5.2",

@@ -1,35 +1,40 @@
 import { PROTOCOL_VERSION } from '@eduharness-studio/engine';
+import { createModelGateway, type ModelGateway } from '@eduharness-studio/engine/models';
 import { Hono } from 'hono';
 import { createCourseRoutes } from './course-routes.js';
 import { createCourseStore } from './course-store.js';
 import type { StudioDatabase } from './db.js';
 import { createLessonRoutes } from './lesson-routes.js';
+import { createModelRoutes } from './model-routes.js';
 
 export interface ServerAppOptions {
   database: StudioDatabase;
-  mode?: 'offline' | 'live';
+  modelGateway?: ModelGateway;
 }
 
-export function createServerApp({ database, mode = 'offline' }: ServerAppOptions): Hono {
+export function createServerApp({
+  database,
+  modelGateway = createModelGateway(),
+}: ServerAppOptions): Hono {
   const app = new Hono();
 
-  app.get('/api/health', (c) => {
+  app.get('/api/health', async (c) => {
     const dbHealth = database.checkHealth();
     return c.json({
       ok: true,
       service: 'eduharness-studio-server',
       protocolVersion: PROTOCOL_VERSION,
-      mode,
+      mode: (await modelGateway.getStatus()).mode,
       sqlite: dbHealth.ok ? 'ok' : 'error',
       tables: dbHealth.tables,
     });
   });
 
-  app.get('/api/meta', (c) => {
+  app.get('/api/meta', async (c) => {
     return c.json({
       service: 'eduharness-studio-server',
       protocolVersion: PROTOCOL_VERSION,
-      mode,
+      mode: (await modelGateway.getStatus()).mode,
       architecture: 'two-layer-dynamic-curriculum',
       capabilities: [
         'course-blueprint',
@@ -44,6 +49,7 @@ export function createServerApp({ database, mode = 'offline' }: ServerAppOptions
   });
 
   const courses = createCourseStore(database);
+  app.route('/api', createModelRoutes(modelGateway));
   app.route('/api', createCourseRoutes(courses));
   app.route('/api', createLessonRoutes(courses, database));
   return app;

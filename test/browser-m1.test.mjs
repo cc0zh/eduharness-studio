@@ -98,6 +98,9 @@ test('M1 browser: replay, learner inputs, persistence, X-Ray scoring and cross-p
   timeout: 70_000,
 }, async (t) => {
   const { page, url, errors } = await startBrowserFixture(t, { useNpmDev });
+  const model = await page.request.get(`${url}/api/model`);
+  assert.equal(model.status(), 200);
+  assert.equal((await model.json()).mode, 'offline');
   await page.goto(url);
   await page.getByRole('link', { name: 'Eduharness课堂', exact: true }).waitFor();
   await page.getByRole('button', { name: '开始示范课：条件概率与贝叶斯直觉' }).click();

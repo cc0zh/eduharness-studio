@@ -11,6 +11,7 @@
     "@eduharness-studio/engine": "*",
     "@hono/node-server": "^1.14.1",
     "@sinclair/typebox": "0.34.52",
-    "hono": "^4.7.6"
+    "hono": "^4.7.6",
+    "undici": "7.30.2"
   }
 }

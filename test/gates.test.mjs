@@ -65,6 +65,48 @@ test('boundary gate restricts @earendil-works/pi-ai to packages/engine/src/model
   }
 });
 
+test('boundary gate permits the server subpath but rejects root, transitive and web imports of the gateway', () => {
+  const dir = makeTempDir('studio-model-boundary-');
+  try {
+    const files = {
+      'packages/engine/src/models.ts': "export { createModels } from '@earendil-works/pi-ai';",
+      'packages/engine/src/index.ts': 'export const safe = 1;',
+      'apps/server/src/app.ts': "import '@eduharness-studio/engine/models';",
+      'apps/web/src/App.tsx': "import '@eduharness-studio/engine';",
+    };
+    for (const [path, source] of Object.entries(files)) {
+      mkdirSync(join(dir, path, '..'), { recursive: true });
+      writeFileSync(join(dir, path), source);
+    }
+    assert.equal(checkBoundaries(dir).checkedFiles, 4);
+
+    writeFileSync(join(dir, 'packages/engine/src/index.ts'), "export * from './models.js';");
+    assert.throws(() => checkBoundaries(dir), /index\.ts: 模型网关只能经服务端专用子路径/);
+    writeFileSync(join(dir, 'packages/engine/src/index.ts'), "export * from './helper.js';");
+    writeFileSync(join(dir, 'packages/engine/src/helper.ts'), "import './models.js';");
+    assert.throws(() => checkBoundaries(dir), /helper\.ts: 模型网关只能经服务端专用子路径/);
+    rmSync(join(dir, 'packages/engine/src/helper.ts'));
+    writeFileSync(join(dir, 'packages/engine/src/index.ts'), files['packages/engine/src/index.ts']);
+
+    for (const statement of [
+      "import '@eduharness-studio/engine/models';",
+      'void import(`@eduharness-studio/engine/models`);',
+      "type Gateway = import('@eduharness-studio/engine/models').ModelGateway;",
+      "import '@earendil-works/pi-ai';",
+    ]) {
+      writeFileSync(join(dir, 'apps/web/src/App.tsx'), statement);
+      assert.throws(() => checkBoundaries(dir), /前端 apps\/web 禁止导入/);
+    }
+    writeFileSync(
+      join(dir, 'apps/web/src/App.tsx'),
+      "import '@/../../../packages/engine/src/models.ts';",
+    );
+    assert.throws(() => checkBoundaries(dir), /越出 web 源码边界/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('docs gate rejects stray root markdown and broken local links', () => {
   const dir = makeTempDir('studio-docs-');
   try {

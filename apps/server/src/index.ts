@@ -2,15 +2,18 @@ import { resolve } from 'node:path';
 import { serve } from '@hono/node-server';
 import { createServerApp } from './app.js';
 import { openStudioDatabase } from './db.js';
+import { configureModels, loadStudioEnvironment } from './model-config.js';
 
-const port = Number(process.env.PORT ?? 3001);
+const env = loadStudioEnvironment();
+const port = Number(env.PORT ?? 3001);
 const dbPath =
-  process.env.STUDIO_DB_PATH === ':memory:'
+  env.STUDIO_DB_PATH === ':memory:'
     ? ':memory:'
-    : resolve(process.cwd(), process.env.STUDIO_DB_PATH ?? 'data/studio.sqlite');
+    : resolve(process.cwd(), env.STUDIO_DB_PATH ?? 'data/studio.sqlite');
 
+const { gateway, closeModelTransport } = configureModels(env);
 const database = openStudioDatabase(dbPath);
-const app = createServerApp({ database, mode: 'offline' });
+const app = createServerApp({ database, modelGateway: gateway });
 
 const server = serve(
   {
@@ -28,7 +31,10 @@ const server = serve(
 function shutdown() {
   server.close(() => {
     database.close();
-    process.exit(0);
+    void closeModelTransport().then(
+      () => process.exit(0),
+      () => process.exit(1),
+    );
   });
 }
 

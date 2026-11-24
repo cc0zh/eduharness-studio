@@ -1,5 +1,6 @@
 import { lstatSync, readdirSync, readFileSync } from 'node:fs';
-import { dirname, extname, join, relative, resolve, sep } from 'node:path';
+import { isBuiltin } from 'node:module';
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
@@ -34,25 +35,22 @@ function collectSpecifiers(filePath, sourceText) {
       : ts.ScriptKind.JS;
   const sf = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true, kind);
   const items = [];
+  const add = (node) => items.push(node && ts.isStringLiteralLike(node) ? node.text : null);
 
   function visit(node) {
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
-      if (ts.isStringLiteral(node.moduleSpecifier)) {
-        items.push({ specifier: node.moduleSpecifier.text, computed: false });
-      } else {
-        items.push({ specifier: null, computed: true });
-      }
+      add(node.moduleSpecifier);
+    } else if (
+      ts.isImportEqualsDeclaration(node) &&
+      ts.isExternalModuleReference(node.moduleReference)
+    ) {
+      add(node.moduleReference.expression);
+    } else if (ts.isImportTypeNode(node)) {
+      add(ts.isLiteralTypeNode(node.argument) ? node.argument.literal : undefined);
     } else if (ts.isCallExpression(node)) {
       const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
       const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require';
-      if (isDynamicImport || isRequire) {
-        const arg = node.arguments[0];
-        if (arg && ts.isStringLiteral(arg)) {
-          items.push({ specifier: arg.text, computed: false });
-        } else {
-          items.push({ specifier: null, computed: true });
-        }
-      }
+      if (isDynamicImport || isRequire) add(node.arguments[0]);
     }
     ts.forEachChild(node, visit);
   }
@@ -63,7 +61,7 @@ function collectSpecifiers(filePath, sourceText) {
 
 function isInside(parentDir, targetPath) {
   const rel = relative(parentDir, targetPath);
-  return rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`);
+  return !isAbsolute(rel) && rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`);
 }
 
 export function checkBoundaries(root = defaultRoot) {
@@ -83,22 +81,31 @@ export function checkBoundaries(root = defaultRoot) {
       const relFile = toPosix(relative(absRoot, file));
       const specifiers = collectSpecifiers(file, readFileSync(file, 'utf8'));
 
-      for (const item of specifiers) {
-        if (item.computed || !item.specifier) {
+      for (const spec of specifiers) {
+        if (!spec) {
           errors.push(`${relFile}: 禁止动态计算导入路径（computed import）。`);
           continue;
         }
-        const spec = item.specifier;
-
-        if (spec.startsWith('.') || spec.startsWith('/') || spec.startsWith('file:')) {
-          const target = spec.startsWith('file:')
-            ? fileURLToPath(spec)
-            : spec.startsWith('/')
-              ? resolve(absRoot, spec.slice(1))
-              : resolve(dirname(file), spec);
+        const webAlias = layer.name === 'web' && spec.startsWith('@/');
+        if (webAlias || spec.startsWith('.') || isAbsolute(spec) || spec.startsWith('file:')) {
+          const pathname = spec.split(/[?#]/, 1)[0];
+          const target = pathname.startsWith('file:')
+            ? fileURLToPath(pathname)
+            : pathname.startsWith('/')
+              ? resolve(absRoot, pathname.slice(1))
+              : webAlias
+                ? resolve(layer.dir, pathname.slice(2))
+                : resolve(dirname(file), pathname);
           if (!isInside(layer.dir, target)) {
             errors.push(
               `${relFile}: 相对导入 "${spec}" 越出 ${layer.name} 源码边界；跨层请通过工作区包名导入。`,
+            );
+          } else if (
+            layer.name === 'engine' &&
+            target.replace(/\.(?:ts|js)$/, '') === join(layer.dir, 'models')
+          ) {
+            errors.push(
+              `${relFile}: 模型网关只能经服务端专用子路径导入，禁止在引擎内部引用或重导出 "${spec}"。`,
             );
           }
           continue;
@@ -112,7 +119,7 @@ export function checkBoundaries(root = defaultRoot) {
             continue;
           }
           if (
-            spec.startsWith('node:') ||
+            isBuiltin(spec) ||
             spec === 'react' ||
             spec.startsWith('react/') ||
             spec === 'react-dom' ||
@@ -145,14 +152,14 @@ export function checkBoundaries(root = defaultRoot) {
           }
         } else if (layer.name === 'web') {
           if (
-            spec.startsWith('node:') ||
+            isBuiltin(spec) ||
             spec === 'hono' ||
             spec.startsWith('hono/') ||
             spec.startsWith('@hono/') ||
             spec.startsWith('@earendil-works/pi-ai') ||
             spec === '@eduharness-studio/server' ||
             spec.startsWith('@eduharness-studio/server/') ||
-            spec === '@eduharness-studio/engine/models'
+            spec.startsWith('@eduharness-studio/engine/')
           ) {
             errors.push(
               `${relFile}: 前端 apps/web 禁止导入 "${spec}"（禁止直接依赖服务端/Node/模型网关）。`,

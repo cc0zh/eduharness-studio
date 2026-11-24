@@ -40,9 +40,16 @@ npm run dev
 - 复验开发启动路径时，以 `STUDIO_E2E_DEV=1` 运行 `npm run test:e2e`；可选 `STUDIO_E2E_SCREENSHOTS` 指定截图目录。
 - X-Ray 离线质检沿用 `eduharness` 工作尺子 `e1-binary-v3` 的 19 题与汇总口径；本地规则只近似判断可观测证据，不等同模型裁判。
 
+## 模型配置（M2-1）
+
+- 顶栏「模型与自带密钥」从 `/api/model` 读取状态和目录。临时 Key 仅保存在本地服务进程，刷新页面会读回状态（不读回 Key）；清空或重启服务回落环境配置，无 Key 则离线。
+- 服务启动读取仓库根 `.env`（可用 `STUDIO_ENV_FILE` 指向独立文件）；同名进程环境变量优先。使用供应商原生变量（如 `OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`DEEPSEEK_API_KEY`），可用 `STUDIO_MODEL_PROVIDER` / `STUDIO_MODEL_ID` 指定模型；未指定则用首个有凭据的目录项。模型调用可经 `HTTPS_PROXY`，支持 `NO_PROXY`。
+- 当前目录限 `pi-ai` 支持单 Key 且可注入代理传输的 OpenAI、Anthropic、DeepSeek、Moonshot AI、OpenRouter。`live` 只表示已配置，不验证 Key；本切片的示范课、建课与上课仍离线。真实冒烟须先获费用授权。
+- 复验顶栏 BYOK：`node --test test/browser-m2-1.test.mjs`。设置 `STUDIO_MODEL_SCREENSHOTS` 可保存 Chromium 截图。
+
 ## 常见排障
 
-1. **三层导入边界报错**：检查是否跨层引用了禁止依赖（如 `packages/engine` 引入 `node:*`/React/Hono，或 `apps/web` 引入服务端/Node 模块）。跨层引用只能使用工作区包名 `@eduharness-studio/engine`。
+1. **三层导入边界报错**：跨层使用 `@eduharness-studio/engine`；只有服务端可引用 `@eduharness-studio/engine/models`，不能经引擎根入口转接。
 2. **文档门禁报错**：确认未在根目录或 `docs/` 根目录新建未登记 `.md`，未超出活文档行数预算，且新增归档或经验已链接至对应 `README.md`。
 3. **代码卫生 / Biome 报错**：单源码文件上限 360 行，禁止 `@ts-ignore`/`@ts-nocheck`/显式 `any` 及仓库根目录野文件；格式问题可用 `npm run format` 修复。
 4. **端口占用**：通过 `PORT` / `WEB_PORT` 临时改端口后重试 `npm run dev`。
