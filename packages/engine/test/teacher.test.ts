@@ -115,11 +115,27 @@ test('opening protects handoff, layout and acknowledged board references', () =>
         { type: 'board', column: 1, card_id: 'discarded', content: 'x'.repeat(181) },
         { type: 'highlight', card_id: 'ghost', target_text: 'ghost', style: 'circle' },
         { type: 'speak', text: '正确答案是第二个。' },
+        { type: 'speak', text: '最终结果是 31%。' },
         { type: 'speak', text: 'x'.repeat(141) },
       ]),
     ),
-    /truncated beat[\s\S]*acknowledged[\s\S]*reveals[\s\S]*140[\s\S]*end at ask/,
+    /truncated beat[\s\S]*acknowledged[\s\S]*reveals[\s\S]*reveals[\s\S]*140[\s\S]*end at ask/,
   );
+  const medicalSetup = guardTeacherTurn(
+    highWater,
+    output('opening', [
+      {
+        type: 'board',
+        column: 1,
+        card_id: 's20-b1',
+        content: '某次筛查检测结果是阳性，复查化验结果为阳性，样本结果：待核对。',
+      },
+      { type: 'speak', text: '检测结果是阳性时，患病概率一定很高吗？' },
+      { type: 'speak', text: '先结合人群患病率想一想。' },
+      { type: 'ask', card_id: 's20-q1', mode: 'open', prompt: '你会先查哪个数？' },
+    ]),
+  );
+  assert.ok(medicalSetup.ok);
   assert.deepEqual(shuffleAskOptions(options, 'repeat'), shuffleAskOptions(options, 'repeat'));
   assert.equal(
     new Set(Array.from({ length: 8 }, (_, i) => shuffleAskOptions(options, `${i}`)[0].id)).size,

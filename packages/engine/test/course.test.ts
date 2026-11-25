@@ -142,14 +142,13 @@ test('lazy lesson opening correction explicitly removes insertions and premature
     lesson,
     previousKeypoints: [],
   });
-  assert.match(openingPrompt, /omit insert_keypoint/);
-  assert.match(openingPrompt, /omit insert_keypoint, keypoint_complete and keypoint_unverified/);
-  assert.match(openingPrompt, /exactly one ordinary ask/);
-  assert.match(openingPrompt, /final beat and must omit checkpoint/);
-  assert.match(openingPrompt, /Never use ask\(checkpoint=verify\)/);
+  assert.match(openingPrompt, /ONLY top-level keys keypoints/);
+  assert.match(openingPrompt, /Inside opening, include ONLY diagnosis .* and actions/);
+  assert.doesNotMatch(openingPrompt, /insert_keypoint|keypoint_complete|keypoint_unverified/);
+  assert.match(openingPrompt, /exactly one ordinary ask as the final beat \(without checkpoint\)/);
   assert.match(
     retryPrompt,
-    /Rewrite the complete opening and fix these previous guardrail reasons/,
+    /Rewrite the complete lesson payload \(keypoints, optional basis, and opening\) and fix these previous guardrail reasons/,
   );
   assert.match(retryPrompt, /model_invalid_output/);
   assert.match(

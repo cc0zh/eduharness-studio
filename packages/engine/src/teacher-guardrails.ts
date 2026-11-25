@@ -96,7 +96,7 @@ export const teacherTextLimits = {
 } as const;
 
 export const openingReveal =
-  /(?:正确)?(?:答案|结果|选项)\s*(?:是|为|[:：])|\b(?:the |correct |final )?answer\s*(?:is\b|[:=])/i;
+  /(?:正确|最终)?(?:答案|选项)\s*(?:是|为|[:：])|(?:正确|最终)结果\s*(?:是|为|[:：])|\b(?:the |correct |final )?answer\s*(?:is\b|[:=])/i;
 
 function textProblems(draft: TeacherTurnOutput['actions'][number], opening: boolean) {
   const limits = teacherTextLimits;
