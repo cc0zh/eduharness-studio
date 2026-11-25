@@ -163,7 +163,7 @@ export function createCourseLessonPlanner(
             'Return ONLY top-level keys keypoints (2–6 progressive items), optional basis, and opening. Inside opening, include ONLY diagnosis (status="opening", summary, strategy) and actions (4–8 unnumbered actions); omit unused optional fields and never add extra keys, null values, or step_id.',
             'Opening contract (hard): actions must end with exactly one ordinary ask as the final beat (without checkpoint). Do not add another ask or any keypoint outcome before the student has answered.',
             'Pedagogy & layout: never open with dry textbook definitions or "three elements" lists; open with a concrete failure case, counterintuitive conflict, or real problem. Use a clean left-to-right two-column layout (column 1 setup/tension -> column 2 mechanism/contrast table or diagram) instead of stacking every card into column 1.',
-            'Keep all board and graph content complete but ≤180 characters; title ≤48; formula ≤140; speak ≤140; ask prompt ≤140; choice labels ≤56. Give all board/graph/ask cards unique IDs. Highlight only a prior board/graph card, quoting text in its content.',
+            'Keep all board and graph content complete but ≤280 characters; title ≤48; formula ≤140; speak ≤140; ask prompt ≤140; choice labels ≤56. Give all board/graph/ask cards unique IDs. Highlight only a prior board/graph card, quoting text in its content.',
             `Character budgets: ${JSON.stringify(teacherTextLimits)}`,
             teacherGraphInstruction,
             `Course: ${JSON.stringify({

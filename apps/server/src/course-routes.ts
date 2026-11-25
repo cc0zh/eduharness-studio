@@ -118,7 +118,12 @@ export function createCourseRoutes(courses: CourseStore, gateway: ModelGateway) 
       try {
         blueprint = (await planBlueprint(id, answers)).blueprint;
       } catch (error) {
-        return c.json({ error: 'course_generation_failed', ...generationFailure(error) }, 502);
+        const failure = generationFailure(error);
+        const detail = failure.reasons?.join(' | ') ?? '';
+        console.error(
+          `[studio] 502 POST ${c.req.path} course_generation_failed/${failure.failure}${detail ? `: ${detail}` : ''}`,
+        );
+        return c.json({ error: 'course_generation_failed', ...failure }, 502);
       }
     }
     courses.add(blueprint);
@@ -138,7 +143,12 @@ export function createCourseRoutes(courses: CourseStore, gateway: ModelGateway) 
           result.error === 'course_not_found' || result.error === 'lesson_not_found' ? 404 : 409,
         );
       } catch (error) {
-        return c.json({ error: 'lesson_generation_failed', ...generationFailure(error) }, 502);
+        const failure = generationFailure(error);
+        const detail = failure.reasons?.join(' | ') ?? '';
+        console.error(
+          `[studio] 502 POST ${c.req.path} lesson_generation_failed/${failure.failure}${detail ? `: ${detail}` : ''}`,
+        );
+        return c.json({ error: 'lesson_generation_failed', ...failure }, 502);
       }
     },
   );

@@ -112,7 +112,7 @@ test('opening protects handoff, layout and acknowledged board references', () =>
     guardTeacherTurn(
       highWater,
       output('opening', [
-        { type: 'board', column: 1, card_id: 'discarded', content: 'x'.repeat(181) },
+        { type: 'board', column: 1, card_id: 'discarded', content: 'x'.repeat(281) },
         { type: 'highlight', card_id: 'ghost', target_text: 'ghost', style: 'circle' },
         { type: 'speak', text: '正确答案是第二个。' },
         { type: 'speak', text: '最终结果是 31%。' },

@@ -70,7 +70,7 @@ function oversizedDraftReasons() {
         column: 1,
         card_id: `reused-${index === 0 ? 'first' : 'same'}`,
         title: '标题'.repeat(25),
-        content: '板书'.repeat(91),
+        content: '板书'.repeat(141),
       })),
     },
   };

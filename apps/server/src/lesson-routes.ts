@@ -98,9 +98,17 @@ export function createLessonRoutes(
         basis: material?.basis,
         openingEvidence: material?.openingEvidence,
       });
-      return 'error' in started
-        ? c.json(started, writeStatus(started.error))
-        : c.json(started.snapshot, started.created ? 201 : 200);
+      if ('error' in started) {
+        const status = writeStatus(started.error);
+        if (status === 502) {
+          const detail = 'reasons' in started && started.reasons ? started.reasons.join(' | ') : '';
+          console.error(
+            `[studio] 502 POST ${c.req.path} ${started.error}${'failure' in started && started.failure ? `/${started.failure}` : ''}${detail ? `: ${detail}` : ''}`,
+          );
+        }
+        return c.json(started, status);
+      }
+      return c.json(started.snapshot, started.created ? 201 : 200);
     },
   );
 
@@ -194,9 +202,18 @@ export function createLessonRoutes(
       | undefined,
   ) {
     if (!result) return c.json({ error: 'session_not_found' }, 404);
-    return 'error' in result
-      ? c.json(result, writeStatus(result.error ?? 'teacher_turn_failed'))
-      : c.json(result);
+    if ('error' in result) {
+      const status = writeStatus(result.error ?? 'teacher_turn_failed');
+      if (status === 502) {
+        const detail =
+          'reasons' in result && Array.isArray(result.reasons) ? result.reasons.join(' | ') : '';
+        console.error(
+          `[studio] 502 POST ${c.req.path} ${result.error}${'failure' in result && result.failure ? `/${result.failure}` : ''}${detail ? `: ${detail}` : ''}`,
+        );
+      }
+      return c.json(result, status);
+    }
+    return c.json(result);
   }
 
   routes.post(

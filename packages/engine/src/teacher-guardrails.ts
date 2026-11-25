@@ -84,7 +84,7 @@ export function teacherAnswerEvidence(context: TeacherTurnContext) {
 }
 
 export const teacherTextLimits = {
-  board: 180,
+  board: 280,
   title: 48,
   formula: 140,
   speak: 140,

@@ -135,3 +135,26 @@ test('model gateway enforces a deadline even if a faux provider does not settle 
   assert.equal(signal?.aborted, true);
   assert.equal(state.callCount, 1);
 });
+
+test('structured output strips blank optional fields and accepts direct unwrapped schema payloads', async () => {
+  const { gateway, setResponses } = createFauxModelGateway();
+  gateway.setByok(byok);
+  const cardSchema = Type.Object(
+    {
+      text: Type.String({ minLength: 1 }),
+      formula: Type.Optional(Type.String({ minLength: 1 })),
+      hint: Type.Optional(Type.String({ minLength: 1 })),
+    },
+    { additionalProperties: false },
+  );
+  setResponses([
+    result({ text: 'ok', formula: '', hint: null }),
+    fauxAssistantMessage(fauxToolCall('emit_result', { text: 'direct', formula: '   ' }), {
+      stopReason: 'toolUse',
+    }),
+  ]);
+  const first = await gateway.generate({ schema: cardSchema, prompt: 'first', attempts: 1 });
+  assert.deepEqual(first.value, { text: 'ok' });
+  const second = await gateway.generate({ schema: cardSchema, prompt: 'second', attempts: 1 });
+  assert.deepEqual(second.value, { text: 'direct' });
+});

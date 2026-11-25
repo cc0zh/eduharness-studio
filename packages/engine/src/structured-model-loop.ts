@@ -197,6 +197,35 @@ function schemaCorrection(reasons: readonly string[]) {
   return `model_invalid_output: the structured result violated these constraints: ${reasons.join('; ')}. Correct only the reported fields; do not repeat rejected values or include secrets.`;
 }
 
+const optionalBlankFields = new Set([
+  'formula',
+  'hint',
+  'title',
+  'summary',
+  'depth',
+  'url',
+  'basis',
+  'examples',
+  'misconceptions',
+  'sources',
+]);
+
+function stripBlankOptionalFields(value: unknown, depth = 0): unknown {
+  if (depth > 8 || value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((item) => stripBlankOptionalFields(item, depth + 1));
+  const cleaned: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (
+      optionalBlankFields.has(key) &&
+      (entry === null || (typeof entry === 'string' && !entry.trim()))
+    ) {
+      continue;
+    }
+    cleaned[key] = stripBlankOptionalFields(entry, depth + 1);
+  }
+  return cleaned;
+}
+
 function boundedResult(result: unknown) {
   try {
     const content = typeof result === 'string' ? result : JSON.stringify(result);
@@ -236,18 +265,15 @@ export async function runStructuredModelLoop<S extends TSchema, TMessage>(
     });
     const [call, extra] = response.calls;
     if (response.stopReason === 'toolUse' && call?.name === options.output.name && !extra) {
-      const value: unknown = call.arguments.value;
-      if (
-        Object.hasOwn(call.arguments, 'value') &&
-        Object.keys(call.arguments).length === 1 &&
-        Value.Check(options.schema, value)
-      ) {
-        return { value, toolCallsUsed };
+      const wrapped =
+        Object.hasOwn(call.arguments, 'value') && Object.keys(call.arguments).length === 1;
+      const candidate = stripBlankOptionalFields(wrapped ? call.arguments.value : call.arguments);
+      if (Value.Check(options.schema, candidate)) {
+        return { value: candidate, toolCallsUsed };
       }
-      invalidReasons =
-        Object.hasOwn(call.arguments, 'value') && Object.keys(call.arguments).length === 1
-          ? schemaReasons(options.schema, value)
-          : ['emit_result must contain only the required value field'];
+      invalidReasons = wrapped
+        ? schemaReasons(options.schema, candidate)
+        : ['emit_result must contain only the required value field'];
       messages.push(response.message);
       messages.push(options.appendToolResult(call, schemaCorrection(invalidReasons), true));
       invalidOutputs++;
