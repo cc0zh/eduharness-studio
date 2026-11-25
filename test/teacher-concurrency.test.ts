@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { openStudioDatabase } from '../apps/server/src/db.js';
-import type { sessionDatabase } from '../apps/server/src/session-db.js';
+import { sessionDatabase } from '../apps/server/src/session-db.js';
 import { createSessionLocks } from '../apps/server/src/session-lock.js';
 import { createSessionStore } from '../apps/server/src/session-store.js';
-import { makeFixture, opening, scaffold, startAtAsk } from './teacher-test-support.js';
+import { lessonDraft, makeFixture, scaffold, startAtAsk } from './teacher-test-support.js';
 
 test('local teacher lock clears after acquire and release transaction failures', async () => {
   for (const { failAt, failAfterWork } of [
@@ -39,10 +39,10 @@ test('local teacher lock clears after acquire and release transaction failures',
 
 test('another SQLite connection cannot duplicate an in-flight teacher model turn', async (t) => {
   const fixture = makeFixture(t);
-  fixture.faux.setResponses([fixture.structured(opening)]);
+  fixture.faux.setResponses([fixture.structured(lessonDraft())]);
   const live = await startAtAsk(fixture.store, () => fixture.store.start(fixture.options(false)));
   const secondDb = openStudioDatabase(fixture.path);
-  const otherStore = createSessionStore(secondDb, fixture.planner);
+  const otherStore = createSessionStore(sessionDatabase(secondDb.db), fixture.planner);
   fixture.closeAdditional.push(() => secondDb.close());
   let began: (() => void) | undefined;
   let release: (() => void) | undefined;
@@ -74,7 +74,7 @@ test('another SQLite connection cannot duplicate an in-flight teacher model turn
 
 test('an in-flight cross-worker interruption keeps the previous SSE stream idle', async (t) => {
   const fixture = makeFixture(t);
-  fixture.faux.setResponses([fixture.structured(opening)]);
+  fixture.faux.setResponses([fixture.structured(lessonDraft())]);
   const started = await fixture.store.start(fixture.options(false));
   assert.ok('snapshot' in started);
   const { session_id: id, generation } = started.snapshot;
@@ -92,7 +92,7 @@ test('an in-flight cross-worker interruption keeps the previous SSE stream idle'
   );
 
   const secondDb = openStudioDatabase(fixture.path);
-  const otherStore = createSessionStore(secondDb, fixture.planner);
+  const otherStore = createSessionStore(sessionDatabase(secondDb.db), fixture.planner);
   const otherStream = otherStore.openStream(id, generation);
   assert.ok(otherStream && !('error' in otherStream));
   fixture.closeAdditional.push(() => secondDb.close());

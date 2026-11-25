@@ -7,7 +7,11 @@ import {
   validateBlueprint,
   validateLessonScript,
 } from '@eduharness-studio/engine';
-import { type LessonMaterial, validateLessonMaterial } from '@eduharness-studio/engine/course';
+import {
+  isLiveLessonMaterial,
+  type LessonMaterial,
+  validateLessonMaterial,
+} from '@eduharness-studio/engine/course';
 import type { StudioDatabase } from './db.js';
 
 export type CourseStore = ReturnType<typeof createCourseStore>;
@@ -44,9 +48,10 @@ export function createCourseStore({ db }: StudioDatabase) {
   const get = db.prepare('SELECT blueprint_json FROM courses WHERE id = ?');
   const list = db.prepare('SELECT id, blueprint_json FROM courses ORDER BY created_at DESC, id');
   const saveBlueprint = db.prepare('UPDATE courses SET blueprint_json = ? WHERE id = ?');
-  const addMaterial = db.prepare(
-    'INSERT INTO course_lessons (course_id, lesson_id, material_json) VALUES (?, ?, ?)',
-  );
+  const putMaterial = db.prepare(`
+    INSERT INTO course_lessons (course_id, lesson_id, material_json) VALUES (?, ?, ?)
+    ON CONFLICT(course_id, lesson_id) DO UPDATE SET material_json = excluded.material_json
+  `);
   const getMaterial = db.prepare(
     'SELECT material_json FROM course_lessons WHERE course_id = ? AND lesson_id = ?',
   );
@@ -73,23 +78,23 @@ export function createCourseStore({ db }: StudioDatabase) {
   }
 
   return {
-    add(blueprint: CourseBlueprint, material?: LessonMaterial) {
-      transaction(() => {
-        insert.run(
-          blueprint.id,
-          blueprint.topic,
-          blueprint.title,
-          JSON.stringify(blueprint),
-          new Date().toISOString(),
-        );
-        if (material)
-          addMaterial.run(blueprint.id, blueprint.units[0].lessons[0].id, JSON.stringify(material));
-      });
+    add(blueprint: CourseBlueprint) {
+      insert.run(
+        blueprint.id,
+        blueprint.topic,
+        blueprint.title,
+        JSON.stringify(blueprint),
+        new Date().toISOString(),
+      );
     },
     get(id: string): CourseBlueprint | undefined {
       if (isRetiredDemo(id)) return undefined;
       const row = get.get(id);
       return row && decodeBlueprint(row.blueprint_json);
+    },
+    lesson(courseId: string, lessonId: string) {
+      const course = this.get(courseId);
+      return { course, lesson: course && lessonAt(course, lessonId) };
     },
     material(courseId: string, lessonId: string): LessonMaterial | undefined {
       const row = getMaterial.get(courseId, lessonId) as { material_json?: unknown } | undefined;
@@ -98,25 +103,33 @@ export function createCourseStore({ db }: StudioDatabase) {
       if (!validateLessonMaterial(material)) throw new Error('Invalid stored lesson material');
       return material;
     },
-    unlock(courseId: string, lessonId: string, material: LessonMaterial) {
+    saveMaterial(
+      courseId: string,
+      lessonId: string,
+      material: LessonMaterial,
+      ownsLease = () => true,
+    ) {
       if (!validateLessonMaterial(material)) throw new Error('invalid_lesson_material');
       return transaction(() => {
-        const blueprint = this.get(courseId);
-        const lesson = blueprint && lessonAt(blueprint, lessonId);
-        if (!blueprint || !lesson) return undefined;
-        if (lesson.status !== 'locked') return { status: lesson.status };
-        addMaterial.run(courseId, lessonId, JSON.stringify(material));
-        const updated = {
-          ...blueprint,
-          units: blueprint.units.map((unit) => ({
-            ...unit,
-            lessons: unit.lessons.map((entry) =>
-              entry.id === lessonId ? { ...entry, status: 'ready' as const } : entry,
-            ),
-          })),
-        };
-        saveBlueprint.run(JSON.stringify(updated), courseId);
-        return { status: 'ready' as const };
+        const { course, lesson } = this.lesson(courseId, lessonId);
+        if (!course || !lesson || !ownsLease()) return false;
+        const saved = this.material(courseId, lessonId);
+        if (!saved || (!isLiveLessonMaterial(saved) && isLiveLessonMaterial(material))) {
+          putMaterial.run(courseId, lessonId, JSON.stringify(material));
+        }
+        if (lesson.status === 'locked') {
+          const updated = {
+            ...course,
+            units: course.units.map((unit) => ({
+              ...unit,
+              lessons: unit.lessons.map((entry) =>
+                entry.id === lessonId ? { ...entry, status: 'ready' as const } : entry,
+              ),
+            })),
+          };
+          saveBlueprint.run(JSON.stringify(updated), courseId);
+        }
+        return true;
       });
     },
     previousKeypoints(courseId: string, lessonId: string): Keypoint[] {

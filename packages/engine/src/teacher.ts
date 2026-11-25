@@ -1,10 +1,6 @@
 import type { PublicDialogueTurn } from './projection.js';
 import type { LessonTraceSpan } from './session-protocol.js';
-import {
-  type ModelGateway,
-  ModelGenerationError,
-  type StructuredModelTool,
-} from './structured-model.js';
+import { type ModelGateway, ModelGenerationError } from './structured-model.js';
 import { compileTeacherTurn } from './teacher-compiler.js';
 import type { TeacherTurnContext } from './teacher-context.js';
 import { materializeTeacherGraph, modelGraphOptions, teacherGraphSpan } from './teacher-graph.js';
@@ -12,7 +8,7 @@ import { normalizeTeacherTurn } from './teacher-normalize.js';
 import { teacherTurnPolicy } from './teacher-policy.js';
 import { teacherPrompt } from './teacher-prompt.js';
 import type { TeacherTurnTrace } from './teacher-protocol.js';
-import { calcVerifyTeacherTool, runTeacherTool, type TeacherTool } from './teacher-tools.js';
+import { calcVerifyTeacherTool, captureTeacherTools, type TeacherTool } from './teacher-tools.js';
 
 export { compileTeacherTurn } from './teacher-compiler.js';
 export {
@@ -31,7 +27,6 @@ export {
 export type { TeacherTool } from './teacher-tools.js';
 
 const maxCorrections = 2;
-const maxToolSteps = 2;
 
 export function createTeacherPlanner(
   gateway: Pick<ModelGateway, 'generate'>,
@@ -49,54 +44,29 @@ export function createTeacherPlanner(
       outcome: 'rejected',
     };
     const policy = teacherTurnPolicy(context);
-    const observations: { tool: string; result: string }[] = [];
-    let toolCallsUsed = 0;
-    let toolDurationMs = 0;
-    const modelSpan = (durationMs: number) =>
-      spans.push({
-        ...anchor,
-        kind: 'model',
-        name: 'teacher_turn',
-        durationMs: Math.max(0, durationMs - toolDurationMs),
-      });
+    const captured = captureTeacherTools(tools, anchor, spans);
 
     for (let attempt = 1; attempt <= maxCorrections + 1; attempt++) {
       const toolBudget =
-        attempt === 1 &&
-        tools.length &&
-        policy.phase !== 'first-low-effort' &&
-        policy.phase !== 'unverified'
-          ? maxToolSteps
+        attempt === 1 && policy.phase !== 'first-low-effort' && policy.phase !== 'unverified'
+          ? captured.maxToolCalls
           : 0;
-      const modelTools: StructuredModelTool[] = toolBudget
-        ? tools.map((tool) => ({
-            name: tool.name,
-            description: tool.description,
-            parameters: tool.parameters,
-            run: async (input) => {
-              if (toolCallsUsed >= maxToolSteps)
-                return JSON.stringify({ error: 'Tool-call limit exhausted.' });
-              toolCallsUsed++;
-              const result = await runTeacherTool(tool, input, anchor);
-              spans.push(result.span);
-              toolDurationMs += result.span.durationMs;
-              const observation =
-                result.observation ?? JSON.stringify({ error: result.error ?? 'tool failed' });
-              observations.push({ tool: tool.name, result: observation });
-              return observation;
-            },
-          }))
-        : [];
+      const modelSpan = (durationMs: number) =>
+        spans.push({
+          ...anchor,
+          kind: 'model',
+          name: 'teacher_turn',
+          durationMs: Math.max(0, durationMs - (toolBudget ? captured.durationMs : 0)),
+        });
       const prompt = teacherPrompt(
         context,
         policy,
         dialogue,
         tools,
         attempt > 1,
-        observations,
+        captured.observations,
         toolBudget,
       );
-      toolDurationMs = 0;
       let scene: unknown;
       try {
         const { value, durationMs } = await gateway.generate({
@@ -105,7 +75,7 @@ export function createTeacherPlanner(
           normalizeOutput: normalizeTeacherTurn,
           maxTokens: 4096,
           attempts: 1,
-          tools: modelTools,
+          tools: toolBudget ? captured.tools : [],
           maxToolCalls: toolBudget,
         });
         modelSpan(durationMs);

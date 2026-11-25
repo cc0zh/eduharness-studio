@@ -57,6 +57,14 @@ const validOpening = {
   next_ask: { prompt: '多测几次后，你会先比较什么？' },
 };
 
+const validLesson = {
+  keypoints: [
+    { id: 'readings', title: '读数', objective: '区分单次读数和稳定值。', depth: 'intuition' },
+    { id: 'noise', title: '噪声', objective: '识别测量误差。', depth: 'definition' },
+  ],
+  opening: validOpening,
+};
+
 test('course unlock 502 returns sanitized model-invalid reasons', async (t) => {
   const { app, course, faux, structured } = setup(t);
   const locked = course.units
@@ -64,10 +72,7 @@ test('course unlock 502 returns sanitized model-invalid reasons', async (t) => {
     .find(({ status }) => status === 'locked');
   assert.ok(locked);
   const invalidLesson = {
-    keypoints: [
-      { id: 'readings', title: '读数', objective: '区分单次读数和稳定值。', depth: 'intuition' },
-      { id: 'noise', title: '噪声', objective: '识别测量误差。', depth: 'definition' },
-    ],
+    ...validLesson,
     opening: {
       ...validOpening,
       insert_keypoint: {
@@ -126,7 +131,7 @@ function sseFrames(reader: ReadableStreamDefaultReader<Uint8Array>) {
 test('teacher 502 and X-Ray expose the same sanitized model-invalid reason', async (t) => {
   const { app, course, faux, structured } = setup(t);
   const first = course.units.flatMap(({ lessons }) => lessons)[0];
-  faux.setResponses([structured(validOpening)]);
+  faux.setResponses([structured(validLesson)]);
   const started = await app.request(`/api/courses/${course.id}/lessons/${first.id}/sessions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

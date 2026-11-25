@@ -111,7 +111,7 @@ test('M2-1 Chromium: BYOK switches via the real API, reloads without the key, cl
   await dialog.waitFor({ state: 'hidden' });
 
   await assertNoSavedKey(page);
-  const files = databaseFiles();
+  const files = await databaseFiles();
   assert.ok(files['studio.sqlite']?.length > 0);
   for (const [name, bytes] of Object.entries(files)) {
     assert.equal(bytes.includes(key), false, `BYOK key in ${name}`);
@@ -265,7 +265,7 @@ test('M2-1b Chromium: OpenRouter presets and live loopback catalog, save and rel
     'Unexpected browser console errors',
   );
   assert.equal(logs().includes(modelMockKey), false);
-  for (const bytes of Object.values(databaseFiles()))
+  for (const bytes of Object.values(await databaseFiles()))
     assert.equal(bytes.includes(modelMockKey), false);
   console.log(
     'M2-1b browser verified OpenRouter presets, custom catalog, manual fallback, reload with blank Key, and saved-Key reuse on loopback.',

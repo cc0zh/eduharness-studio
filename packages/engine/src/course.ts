@@ -2,12 +2,17 @@ import { type Static, Type } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 import { assembleBlueprint } from './blueprints.js';
 import type { IntakeAnswers } from './intake.js';
-import { LessonScriptSchema, validateLessonScript } from './lesson-playback.js';
+import {
+  LessonScriptSchema,
+  liveLessonKeypointCount,
+  validateLessonScript,
+} from './lesson-playback.js';
 import type { CourseBlueprint, Keypoint, LessonRef } from './protocol.js';
 import { DepthTagSchema } from './protocol.js';
+import type { LessonTraceSpan } from './session-protocol.js';
 import { type ModelGateway, ModelGenerationError } from './structured-model.js';
 import { compileTeacherTurn } from './teacher-compiler.js';
-import type { TeacherTurnContext } from './teacher-context.js';
+import { normalizeReply, type TeacherTurnContext } from './teacher-context.js';
 import {
   materializeTeacherGraph,
   modelGraphOptions,
@@ -17,6 +22,12 @@ import { normalizeLessonOpening } from './teacher-normalize.js';
 import { openingTurnPolicy } from './teacher-policy.js';
 import { teacherSceneInstructions } from './teacher-prompt.js';
 import { LessonBasisSchema, TeacherDiagnosisSchema } from './teacher-protocol.js';
+import {
+  calcVerifyTeacherTool,
+  captureTeacherTools,
+  type TeacherTool,
+  teacherToolInstructions,
+} from './teacher-tools.js';
 
 const strict = { additionalProperties: false };
 const short = (maxLength: number) => Type.String({ minLength: 1, maxLength });
@@ -59,7 +70,7 @@ const KeypointDraftSchema = Type.Object(
 );
 const LessonDraftSchema = Type.Object(
   {
-    keypoints: Type.Array(KeypointDraftSchema, { minItems: 2, maxItems: 6 }),
+    keypoints: Type.Array(KeypointDraftSchema, liveLessonKeypointCount),
     basis: Type.Optional(LessonBasisSchema),
     opening: openingTurnPolicy.schema,
   },
@@ -81,6 +92,20 @@ const LessonOpeningEvidenceSchema = Type.Object(
       { maxItems: 2 },
     ),
     graph: Type.Optional(TeacherGraphEvidenceSchema),
+    tools: Type.Optional(
+      Type.Array(
+        Type.Object(
+          {
+            name: short(128),
+            durationMs: Type.Number({ minimum: 0 }),
+            input: Type.Optional(Type.Unknown()),
+            result: Type.Optional(Type.Unknown()),
+          },
+          strict,
+        ),
+        { maxItems: 2 },
+      ),
+    ),
   },
   strict,
 );
@@ -98,6 +123,13 @@ export type LessonMaterial = Static<typeof LessonMaterialSchema>;
 
 export function validateLessonMaterial(input: unknown): input is LessonMaterial {
   return Value.Check(LessonMaterialSchema, input) && validateLessonScript(input.script);
+}
+
+export function isLiveLessonMaterial(
+  material: LessonMaterial | undefined,
+): material is LessonMaterial & { openingEvidence: LessonOpeningEvidence } {
+  // The new planning budget must not invalidate a previously accepted opening.
+  return material?.openingEvidence !== undefined;
 }
 
 export function createCourseBlueprintPlanner(gateway: Pick<ModelGateway, 'generate'>) {
@@ -140,12 +172,16 @@ export class CourseLessonPlanningError extends Error {
 export function createCourseLessonPlanner(
   gateway: Pick<ModelGateway, 'generate'>,
   graphOptions = modelGraphOptions(gateway),
+  tools: readonly TeacherTool[] = [calcVerifyTeacherTool],
 ) {
   return async function plan(input: CourseLessonInput) {
     const { course, lesson, previousKeypoints } = input;
     const guardrails: { attempt: number; reasons: string[] }[] = [];
+    const spans: LessonTraceSpan[] = [];
+    const captured = captureTeacherTools(tools, { generation: 1, step_id: 0 }, spans);
     let durationMs = 0;
     for (let attempt = 1; attempt <= 3; attempt++) {
+      const toolBudget = attempt === 1 ? captured.maxToolCalls : 0;
       let result: { value: Static<typeof LessonDraftSchema>; durationMs: number };
       try {
         result = await gateway.generate({
@@ -153,10 +189,14 @@ export function createCourseLessonPlanner(
           normalizeOutput: normalizeLessonOpening,
           maxTokens: 4096,
           attempts: 1,
+          tools: toolBudget ? captured.tools : [],
+          maxToolCalls: toolBudget,
           prompt: [
             'Prepare one concise, Chinese-language whiteboard lesson with no external search.',
-            'Return ONLY top-level keys keypoints (2–6 progressive items), optional basis, and opening. The nested opening uses the following output contract:',
+            `Return ONLY top-level keys keypoints (${liveLessonKeypointCount.minItems}–${liveLessonKeypointCount.maxItems} progressive items), optional basis, and opening. The nested opening uses the following output contract:`,
+            'Give each point a distinct, topic-specific title and an observable objective. Follow one concrete problem from observation to application; never use generic study steps as point titles.',
             teacherSceneInstructions(openingTurnPolicy),
+            teacherToolInstructions(tools, toolBudget),
             `Course: ${JSON.stringify({
               title: course.title,
               topic: course.topic,
@@ -167,6 +207,9 @@ export function createCourseLessonPlanner(
             })}`,
             `Target lesson: ${JSON.stringify(lesson)}`,
             `Confirmed keypoints from preceding lessons: ${JSON.stringify(previousKeypoints.slice(-12))}`,
+            captured.observations.length
+              ? `工具结果：${JSON.stringify(captured.observations)}`
+              : '',
             guardrails.length
               ? 'The previous submission was invalid. Rewrite the complete lesson using only the declared contract.'
               : '',
@@ -177,6 +220,7 @@ export function createCourseLessonPlanner(
       } catch (error) {
         if (!(error instanceof ModelGenerationError) || error.code !== 'model_invalid_output')
           throw error;
+        durationMs += error.durationMs;
         const reasons = error.reasons.length
           ? error.reasons.map((reason) => `model_invalid_output: ${reason}`)
           : ['emit a complete LessonDraft matching the declared schema'];
@@ -184,6 +228,18 @@ export function createCourseLessonPlanner(
         continue;
       }
       durationMs += result.durationMs;
+      if (
+        (['title', 'objective'] as const).some((field) => {
+          const texts = result.value.keypoints.map((point) => normalizeReply(point[field]));
+          return texts.some((text) => !text) || new Set(texts).size !== texts.length;
+        })
+      ) {
+        guardrails.push({
+          attempt,
+          reasons: ['keypoint titles and objectives must be nonblank and distinct'],
+        });
+        continue;
+      }
       const keypoints = result.value.keypoints.map((point, index) => ({
         ...point,
         status: index === 0 ? ('active' as const) : ('pending' as const),
@@ -210,8 +266,18 @@ export function createCourseLessonPlanner(
         ...(result.value.basis ? { basis: result.value.basis } : {}),
         openingEvidence: {
           diagnosis: result.value.opening.diagnosis,
-          durationMs,
+          durationMs: Math.max(0, durationMs - captured.durationMs),
           guardrails,
+          ...(spans.length
+            ? {
+                tools: spans.map(({ name, durationMs, input, result }) => ({
+                  name,
+                  durationMs,
+                  input,
+                  result,
+                })),
+              }
+            : {}),
           ...(graph ? { graph } : {}),
         },
       };

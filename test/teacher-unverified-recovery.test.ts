@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Action } from '@eduharness-studio/engine';
-import { afterSkip, makeFixture, opening, scaffold, startAtAsk } from './teacher-test-support.js';
+import {
+  afterSkip,
+  lessonDraft,
+  makeFixture,
+  scaffold,
+  startAtAsk,
+} from './teacher-test-support.js';
 
 test('a truncated skip stays pending until its replacement outcome is acknowledged', async (t) => {
   const fixture = makeFixture(t);
-  fixture.faux.setResponses([fixture.structured(opening)]);
+  fixture.faux.setResponses([fixture.structured(lessonDraft())]);
   const live = await startAtAsk(fixture.store, () => fixture.store.start(fixture.options(false)));
   fixture.faux.setResponses([fixture.structured(scaffold)]);
   const first = await fixture.store.answer(live.id, {

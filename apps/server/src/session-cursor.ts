@@ -52,7 +52,8 @@ export function sessionCursor(store: ReturnType<typeof sessionDatabase>) {
       records: store.records(id),
       state,
       askStep: queue.askStep,
-      ...keypoints(session),
+      // The snapshot's existing optional field keeps a mode-switch restart atomic for the player.
+      keypoints: keypoints(session).keypoints ?? queue.script.keypoints,
     };
   }
 

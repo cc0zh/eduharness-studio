@@ -8,13 +8,14 @@ import {
 } from '@eduharness-studio/engine';
 import { createServerApp } from '../apps/server/src/app.js';
 import { openStudioDatabase } from '../apps/server/src/db.js';
+import { sessionDatabase } from '../apps/server/src/session-db.js';
 import { createSessionStore } from '../apps/server/src/session-store.js';
 
 test('offline inspection is read-only, grades acknowledged frames and returns genuine SQLite transitions', async (t) => {
   const database = openStudioDatabase(':memory:');
   t.after(() => database.close());
   const app = createServerApp({ database });
-  const store = createSessionStore(database, async () => {
+  const store = createSessionStore(sessionDatabase(database.db), async () => {
     throw new Error('Offline sessions do not use the teacher planner');
   });
   const course = demoCourses[0];
@@ -23,9 +24,8 @@ test('offline inspection is read-only, grades acknowledged frames and returns ge
     courseId: course.id,
     lessonId: lesson.id,
     topic: course.topic,
-    buildScript: () => offlineLesson(course, lesson),
+    prepare: () => ({ script: offlineLesson(course, lesson) }),
     restart: false,
-    live: false,
   });
   assert.ok('snapshot' in created);
   const { session_id: id, generation } = created.snapshot;

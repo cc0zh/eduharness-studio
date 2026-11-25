@@ -3,14 +3,16 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { TestContext } from 'node:test';
-import { demoCourses, offlineLesson } from '@eduharness-studio/engine';
+import { generateBlueprint, offlineLesson } from '@eduharness-studio/engine';
+import { createCourseLessonPlanner } from '@eduharness-studio/engine/course';
 import {
   createFauxModelGateway,
   fauxAssistantMessage,
   fauxToolCall,
 } from '@eduharness-studio/engine/models';
-import { createTeacherPlanner } from '@eduharness-studio/engine/teacher';
+import { createTeacherPlanner, type TeacherTool } from '@eduharness-studio/engine/teacher';
 import { openStudioDatabase } from '../apps/server/src/db.js';
+import { sessionDatabase } from '../apps/server/src/session-db.js';
 import { createSessionStore } from '../apps/server/src/session-store.js';
 
 export const opening = {
@@ -50,6 +52,24 @@ export const afterSkip = {
   next_ask: { prompt: '六块可以分成几对？' },
 };
 
+export const lessonDraft = (scene: unknown = opening) => ({
+  keypoints: [
+    {
+      id: 'leftover',
+      title: '识别落单积木',
+      objective: '判断分组后是否有剩余。',
+      depth: 'intuition',
+    },
+    {
+      id: 'parity',
+      title: '比较奇偶数量',
+      objective: '用配对解释不同数量的奇偶性。',
+      depth: 'application',
+    },
+  ],
+  opening: scene,
+});
+
 export function makeFixture(t: TestContext) {
   const directory = mkdtempSync(join(tmpdir(), 'eduharness-teacher-lock-'));
   const path = join(directory, 'studio.sqlite');
@@ -58,8 +78,12 @@ export function makeFixture(t: TestContext) {
   const faux = createFauxModelGateway();
   assert.ok(faux.gateway.setByok({ provider: 'faux', modelId: 'faux-1', apiKey: 'faux-only' }));
   const planner = createTeacherPlanner(faux.gateway);
-  const store = createSessionStore(database, planner);
-  const course = demoCourses[0];
+  const store = createSessionStore(sessionDatabase(database.db), planner);
+  const course = generateBlueprint('course-teacher-pairs', {
+    topic: '奇偶性',
+    foundation: 'beginner',
+    goal: 'understand',
+  });
   const lesson = course.units[0].lessons[0];
   const script = offlineLesson(course, lesson);
   t.after(() => {
@@ -69,13 +93,21 @@ export function makeFixture(t: TestContext) {
   });
   const structured = (value: unknown) =>
     fauxAssistantMessage(fauxToolCall('emit_result', { value }), { stopReason: 'toolUse' });
-  const options = (restart: boolean, live = true) => ({
+  const options = (restart: boolean, live = true, tools?: readonly TeacherTool[]) => ({
     courseId: course.id,
     lessonId: lesson.id,
     topic: 'odd-even pairs',
-    buildScript: () => script,
+    prepare: async () =>
+      live
+        ? (
+            await createCourseLessonPlanner(
+              faux.gateway,
+              undefined,
+              tools,
+            )({ course, lesson, previousKeypoints: [] })
+          ).material
+        : { script },
     restart,
-    live,
   });
   return {
     database,
@@ -85,6 +117,7 @@ export function makeFixture(t: TestContext) {
     store,
     structured,
     options,
+    start: () => store.start(options(false)),
     course,
     lesson,
     closeAdditional,

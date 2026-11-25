@@ -159,3 +159,45 @@ export async function runTeacherTool(
     return { error: `${tool.name} could not complete`, span: span({ valid: false }) };
   }
 }
+
+export function captureTeacherTools(
+  tools: readonly TeacherTool[],
+  anchor: Pick<LessonTraceSpan, 'generation' | 'step_id'>,
+  spans: LessonTraceSpan[],
+) {
+  const maxToolCalls = tools.length ? 2 : 0;
+  const observations: { tool: string; result: string }[] = [];
+  let toolCallsUsed = 0;
+  let durationMs = 0;
+  return {
+    maxToolCalls,
+    observations,
+    get durationMs() {
+      return durationMs;
+    },
+    tools: tools.map(
+      (tool): StructuredModelTool => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+        run: async (input) => {
+          if (toolCallsUsed >= maxToolCalls)
+            return JSON.stringify({ error: 'Tool-call limit exhausted.' });
+          toolCallsUsed++;
+          const result = await runTeacherTool(tool, input, anchor);
+          spans.push(result.span);
+          durationMs += result.span.durationMs;
+          const observation = result.observation ?? JSON.stringify({ error: result.error });
+          observations.push({ tool: tool.name, result: observation });
+          return observation;
+        },
+      }),
+    ),
+  };
+}
+
+export function teacherToolInstructions(tools: readonly TeacherTool[], budget: number) {
+  return budget > 0
+    ? `仅在需要精确核对数值、分数、概率或反例时才调用工具（剩余 ${budget} 步）；非数值话题或占位算式不调用。若 approximate=true，只能当作估算。工具：${JSON.stringify(tools.map(({ name, description, parameters }) => ({ name, description, parameters })))}`
+    : '';
+}

@@ -147,3 +147,48 @@ test('stored opening failures remain valid bounded X-Ray evidence', async () => 
   assert.ok(validateLessonMaterial(material));
   assert.equal(faux.state.callCount, 2);
 });
+
+test('live planning rejects five points and accepts four genuine, distinct points after correction', async () => {
+  const faux = localFaux();
+  const output = draft();
+  const four = [
+    ...output.keypoints,
+    {
+      id: 'false-positive',
+      title: '估算假阳性',
+      objective: '比较阳性人数与假阳性人数。',
+      depth: 'application',
+    },
+    {
+      id: 'new-population',
+      title: '对比另一人群',
+      objective: '解释基数率改变后的筛查结果。',
+      depth: 'theory',
+    },
+  ];
+  const duplicate = [...four.slice(0, 3), { ...four[3], title: ` ${four[0].title}。` }];
+  faux.setResponses([
+    fauxResult({
+      ...output,
+      keypoints: [
+        ...four,
+        { id: 'fifth', title: '复查', objective: '复查结果。', depth: 'application' },
+      ],
+    }),
+    fauxResult({ ...output, keypoints: duplicate }),
+    fauxResult({ ...output, keypoints: four }),
+  ]);
+  const { material } = await createCourseLessonPlanner(
+    faux.gateway,
+    {},
+  )({ course, lesson, previousKeypoints: [] });
+  assert.equal(faux.state.callCount, 3);
+  assert.deepEqual(
+    material.script.keypoints.map(({ id }) => id),
+    four.map(({ id }) => id),
+  );
+  const [overLimit, repeated] = material.openingEvidence?.guardrails ?? [];
+  assert.match(overLimit?.reasons.join(' ') ?? '', /keypoints: too many items/);
+  assert.match(repeated?.reasons.join(' ') ?? '', /distinct/);
+  assert.equal(material.basis, undefined);
+});

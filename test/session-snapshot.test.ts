@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import { Worker } from 'node:worker_threads';
 import { demoCourses, offlineLesson } from '@eduharness-studio/engine';
 import { openStudioDatabase } from '../apps/server/src/db.js';
+import { sessionDatabase } from '../apps/server/src/session-db.js';
 import { createSessionStore } from '../apps/server/src/session-store.js';
 
 test('an active-session read keeps one SQLite snapshot across a concurrent worker commit', async (t) => {
@@ -29,7 +30,7 @@ test('an active-session read keeps one SQLite snapshot across a concurrent worke
     }
     return statement;
   };
-  const sessions = createSessionStore(database, async () => {
+  const sessions = createSessionStore(sessionDatabase(database.db), async () => {
     throw new Error('Offline sessions do not use the teacher planner');
   });
   const course = demoCourses[0];
@@ -38,9 +39,8 @@ test('an active-session read keeps one SQLite snapshot across a concurrent worke
     courseId: course.id,
     lessonId: lesson.id,
     topic: course.topic,
-    buildScript: () => offlineLesson(course, lesson),
+    prepare: () => ({ script: offlineLesson(course, lesson) }),
     restart: false,
-    live: false,
   });
   assert.ok('snapshot' in started);
   const { session_id: id, generation } = started.snapshot;

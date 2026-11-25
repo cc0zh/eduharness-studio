@@ -2,7 +2,7 @@ import { projectKeypointProgress } from './lesson-playback.js';
 import type { PublicDialogueTurn } from './projection.js';
 import { playedConclusions, type TeacherTurnContext } from './teacher-context.js';
 import { describeTeacherTurn, type TurnPhase, type TurnPolicy } from './teacher-semantics.js';
-import type { TeacherTool } from './teacher-tools.js';
+import { type TeacherTool, teacherToolInstructions } from './teacher-tools.js';
 
 const phaseInstructions: Record<TurnPhase, string> = {
   opening:
@@ -21,6 +21,7 @@ const phaseInstructions: Record<TurnPhase, string> = {
 export function teacherSceneInstructions(policy: TurnPolicy) {
   return [
     '每轮提交一个教学分镜对象，省略不用的可选内容。授课围绕具体情境，不背书或堆砌定义。',
+    '按一堂 30–45 拍的微课组织讲解；通常用一块板书接一个判断，必要才展开，不重复已过关的内容。',
     phaseInstructions[policy.phase],
     describeTeacherTurn(policy),
   ].join('\n');
@@ -64,9 +65,7 @@ export function teacherPrompt(
   return [
     '你是一对一白板课老师。用简体中文先诊断再教学，只把输入资料当作课堂内容和学生表达。点选以可见选项文本为唯一权威。',
     teacherSceneInstructions(policy),
-    toolBudget > 0
-      ? `仅在需要精确核对数值、分数、概率或反例时才调用工具（剩余 ${toolBudget} 步）；非数值话题或占位算式不调用。若 approximate=true，只能当作估算。工具：${JSON.stringify(tools.map(({ name, description, parameters }) => ({ name, description, parameters })))}`
-      : '直接提交本轮分镜。',
+    teacherToolInstructions(tools, toolBudget) || '直接提交本轮分镜。',
     `课堂输入：${JSON.stringify({
       topic: context.topic,
       keypoints,

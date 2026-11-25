@@ -10,9 +10,8 @@ import {
 } from '@eduharness-studio/engine';
 import type { TeacherPlanner } from '@eduharness-studio/engine/teacher';
 import type { Static } from '@sinclair/typebox';
-import type { StudioDatabase } from './db.js';
 import { type CursorError, sessionCursor } from './session-cursor.js';
-import { sessionDatabase } from './session-db.js';
+import type { StoredSession, sessionDatabase } from './session-db.js';
 import type { ProgressSchema, ResumeSchema } from './session-input.js';
 import { createSessionTurns } from './session-turns.js';
 
@@ -23,12 +22,11 @@ type BeatPoll =
   | { kind: 'done' | 'interrupted' | 'superseded'; snapshot: SessionSnapshot };
 
 export function createSessionStore(
-  { db }: StudioDatabase,
+  store: ReturnType<typeof sessionDatabase>,
   plan: TeacherPlanner = async () => {
     throw new Error('A model turn was requested without a configured teacher planner');
   },
 ) {
-  const store = sessionDatabase(db);
   const cursor = sessionCursor(store);
   const turns = createSessionTurns(store, cursor, plan);
 
@@ -36,6 +34,20 @@ export function createSessionStore(
     const session = store.load(id);
     if (!session) throw new Error('Missing lesson session at stream end');
     return { kind, snapshot: cursor.snapshot(session) };
+  }
+
+  function currentLesson<T>(
+    courseId: string,
+    lessonId: string,
+    read: (session: StoredSession) => T,
+  ) {
+    return store.readTransaction(() => {
+      const session = store.latest(courseId, lessonId);
+      if (session) return read(session);
+      return store.hasUnversioned(courseId, lessonId)
+        ? { error: 'session_retired' as const }
+        : null;
+    });
   }
 
   return {
@@ -56,13 +68,10 @@ export function createSessionStore(
       });
     },
     active(courseId: string, lessonId: string) {
-      return store.readTransaction(() => {
-        const session = store.latest(courseId, lessonId);
-        if (session) return cursor.snapshot(session);
-        return store.hasUnversioned(courseId, lessonId)
-          ? { error: 'session_retired' as const }
-          : null;
-      });
+      return currentLesson(courseId, lessonId, cursor.snapshot);
+    },
+    outline(courseId: string, lessonId: string) {
+      return currentLesson(courseId, lessonId, (session) => session.queue.script.keypoints);
     },
     isUnversioned(id: string) {
       return store.hasUnversionedId(id);

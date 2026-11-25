@@ -178,7 +178,7 @@ test('M2-2b Chromium: loopback BYOK, native calc_verify tool cycle, guardrails a
   assert.deepEqual(external, []);
   assert.deepEqual(errors, []);
   assert.equal(logs().includes(modelMockKey), false);
-  for (const bytes of Object.values(databaseFiles()))
+  for (const bytes of Object.values(await databaseFiles()))
     assert.equal(bytes.includes(modelMockKey), false);
   console.log(
     'M2-2b loopback browser verified BYOK catalog, calc_verify-before-output, guardrail correction, readable X-Ray, zero console errors and no external requests.',

@@ -1,4 +1,4 @@
-import { projectKeypointProgress } from './lesson-playback.js';
+import { liveLessonKeypointCount, projectKeypointProgress } from './lesson-playback.js';
 import { type TeacherTurnContext, teacherAnswerEvidence } from './teacher-context.js';
 import { defineTurnPolicy, type TurnPolicy } from './teacher-semantics.js';
 
@@ -57,7 +57,11 @@ export function teacherTurnPolicy(context: TeacherTurnContext): TurnPolicy {
           ? 'verify'
           : 'answer',
     diagnoses: canAssess ? [...normalDiagnoses, 'mastered'] : normalDiagnoses,
-    insertKeypoint: active && !!ask && context.progress.insertedCount < 2 && keypoints.length < 6,
+    insertKeypoint:
+      active &&
+      !!ask &&
+      context.progress.insertedCount < 2 &&
+      keypoints.length < liveLessonKeypointCount.maxItems,
     resolution: canAssess,
     transferAsk: active && !!ask && substantive && ask.checkpoint !== 'verify',
     diagram: true,

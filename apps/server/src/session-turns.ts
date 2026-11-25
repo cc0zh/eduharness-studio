@@ -42,7 +42,7 @@ export function createSessionTurns(
       step_id: session.lastPlayed,
     } satisfies LessonTraceSpan);
   }
-  const opening = createSessionOpening(store, cursor, planTurn, traceOffline, locks);
+  const opening = createSessionOpening(store, cursor, traceOffline, locks);
   const fallback = createTeacherFallback(store, cursor, traceOffline);
 
   function answer(id: string, input: Static<typeof AnswerSchema>) {

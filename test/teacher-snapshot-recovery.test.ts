@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { Worker } from 'node:worker_threads';
-import { demoCourses, offlineLesson } from '@eduharness-studio/engine';
+import { demoCourses } from '@eduharness-studio/engine';
+import { createCourseLessonPlanner } from '@eduharness-studio/engine/course';
 import {
   createFauxModelGateway,
   fauxAssistantMessage,
@@ -14,8 +15,9 @@ import { createTeacherPlanner } from '@eduharness-studio/engine/teacher';
 import { KindGuard } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 import { openStudioDatabase } from '../apps/server/src/db.js';
+import { sessionDatabase } from '../apps/server/src/session-db.js';
 import { createSessionStore } from '../apps/server/src/session-store.js';
-import { makeFixture, opening, scaffold, startAtAsk } from './teacher-test-support.js';
+import { lessonDraft, makeFixture, opening, scaffold, startAtAsk } from './teacher-test-support.js';
 
 test('a duplicate-answer receipt never mixes an old session with a newer SQLite answer', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'eduharness-teacher-receipt-'));
@@ -39,22 +41,24 @@ test('a duplicate-answer receipt never mixes an old session with a newer SQLite 
   };
   const faux = createFauxModelGateway();
   assert.ok(faux.gateway.setByok({ provider: 'faux', modelId: 'faux-1', apiKey: 'faux-only' }));
-  const store = createSessionStore(database, createTeacherPlanner(faux.gateway));
+  const store = createSessionStore(
+    sessionDatabase(database.db),
+    createTeacherPlanner(faux.gateway),
+  );
   const course = demoCourses[0];
   const lesson = course.units[0].lessons[0];
   const structured = (value: unknown) =>
     fauxAssistantMessage(fauxToolCall('emit_result', { value }), { stopReason: 'toolUse' });
-  const script = offlineLesson(course, lesson);
+  const plan = createCourseLessonPlanner(faux.gateway);
   const start = () =>
     store.start({
       courseId: course.id,
       lessonId: lesson.id,
       topic: 'pairs',
-      buildScript: () => script,
+      prepare: async () => (await plan({ course, lesson, previousKeypoints: [] })).material,
       restart: false,
-      live: true,
     });
-  faux.setResponses([structured(opening)]);
+  faux.setResponses([structured(lessonDraft())]);
   const live = await startAtAsk(store, start);
   const worker = new Worker(
     `
@@ -116,45 +120,20 @@ const revealingOpening = {
   panels: [{ ...opening.panels[0], voiceover: '正确答案是剩下一块。' }],
 };
 
-test('a rejected restart persists opening guardrail diagnostics without replacing the current session', async (t) => {
+test('an invalid live preparation cannot replace the current offline session on restart', async (t) => {
   const fixture = makeFixture(t);
-  fixture.faux.setResponses([fixture.structured(opening)]);
-  const live = await startAtAsk(fixture.store, () => fixture.store.start(fixture.options(false)));
-  const before = fixture.store.inspect(live.id)?.snapshot;
+  const offline = await startAtAsk(fixture.store, () =>
+    fixture.store.start(fixture.options(false, false)),
+  );
+  const before = fixture.store.inspect(offline.id);
   assert.ok(before);
-  fixture.faux.setResponses([
-    fixture.structured(revealingOpening),
-    fixture.structured(revealingOpening),
-    fixture.structured(revealingOpening),
-  ]);
-  const restart = await fixture.store.start(fixture.options(true));
-  assert.ok('error' in restart && restart.error === 'teacher_turn_failed');
-  const after = fixture.store.inspect(live.id);
-  assert.deepEqual(after?.snapshot, before);
-  assert.deepEqual(
-    after?.trace.teacherTurns.at(-1)?.guardrails.map(({ attempt }) => attempt),
-    [1, 2, 3],
-  );
-  assert.equal(after?.trace.teacherTurns.at(-1)?.outcome, 'rejected');
-});
-
-test('a rejected first opening returns guardrail diagnostics without inserting a placeholder session', async (t) => {
-  const fixture = makeFixture(t);
-  fixture.faux.setResponses([
-    fixture.structured(revealingOpening),
-    fixture.structured(revealingOpening),
-    fixture.structured(revealingOpening),
-  ]);
-  const started = await fixture.store.start(fixture.options(false));
-  assert.ok('error' in started && started.error === 'teacher_turn_failed');
-  const trace = 'trace' in started ? started.trace : undefined;
-  assert.ok(trace);
-  assert.deepEqual(
-    trace.guardrails.map(({ attempt }) => attempt),
-    [1, 2, 3],
-  );
-  assert.equal(trace.outcome, 'rejected');
-  assert.equal(fixture.database.db.prepare('SELECT COUNT(*) AS n FROM sessions').get()?.n, 0);
+  const rejected = fixture.structured(lessonDraft(revealingOpening));
+  fixture.faux.setResponses([rejected, rejected, rejected]);
+  await assert.rejects(fixture.store.start(fixture.options(true)), {
+    code: 'course_lesson_invalid_output',
+  });
+  assert.deepEqual(fixture.store.inspect(offline.id), before);
+  assert.equal(fixture.faux.state.callCount, 3);
 });
 
 test('opening schema retries a forbidden prerequisite insertion without persisting it', async (t) => {
@@ -173,7 +152,10 @@ test('opening schema retries a forbidden prerequisite insertion without persisti
     panels: [{ ...opening.panels[0], formula: ' ', draft_note: 'fixture-only drafting note' }],
     next_ask: { ...opening.next_ask, hint: null },
   };
-  fixture.faux.setResponses([fixture.structured(invalid), fixture.structured(noisyOpening)]);
+  fixture.faux.setResponses([
+    fixture.structured(lessonDraft(invalid)),
+    fixture.structured(lessonDraft(noisyOpening)),
+  ]);
   const live = await startAtAsk(fixture.store, () => fixture.store.start(fixture.options(false)));
   const inspection = fixture.store.inspect(live.id);
   assert.ok(inspection);
@@ -198,7 +180,7 @@ test('opening schema retries a forbidden prerequisite insertion without persisti
     {
       attempt: 1,
       reasons: [
-        'model_invalid_output: invalid structured output at $.insert_keypoint: unexpected field',
+        'model_invalid_output: invalid structured output at $.opening.insert_keypoint: unexpected field',
       ],
     },
   ]);
@@ -206,7 +188,7 @@ test('opening schema retries a forbidden prerequisite insertion without persisti
 
 test('first bare answer requests a two-choice scaffold without offering calculation or advancement', async (t) => {
   const fixture = makeFixture(t);
-  fixture.faux.setResponses([fixture.structured(opening)]);
+  fixture.faux.setResponses([fixture.structured(lessonDraft())]);
   const live = await startAtAsk(fixture.store, () => fixture.store.start(fixture.options(false)));
   let prompt = '';
 

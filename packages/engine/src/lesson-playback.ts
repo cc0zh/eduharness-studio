@@ -10,6 +10,8 @@ import {
 import { stateAfterBeat, type TeachingState } from './state.js';
 import { sanitizeSvg } from './static-svg.js';
 
+export const liveLessonKeypointCount = { minItems: 2, maxItems: 4 } as const;
+// Playback still reads deterministic offline lessons and already-persisted snapshots.
 export const LessonKeypointsSchema = Type.Array(KeypointSchema, { minItems: 2, maxItems: 6 });
 export const LessonScriptSchema = Type.Object({
   keypoints: LessonKeypointsSchema,

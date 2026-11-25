@@ -114,24 +114,12 @@ const afterSkip = {
 };
 
 let triedIncompleteResolution = false;
-function nextOutput(prompt, toolCalls) {
+function nextOutput(prompt) {
   const lines = prompt.split('\n');
   const context = JSON.parse(
     lines.find((line) => line.startsWith('课堂输入：')).slice('课堂输入：'.length),
   );
-  const observations = JSON.parse(
-    lines.find((line) => line.startsWith('工具结果：'))?.slice('工具结果：'.length) ?? '[]',
-  );
   const { input, currentAsk } = context;
-  if (input.kind === 'opening') {
-    const count = observations.length + toolCalls;
-    if (count < 2)
-      return {
-        tool: 'mock_calc',
-        arguments: { amount: 2 + count, api_key: 'fake-tool-input-secret' },
-      };
-    return opening;
-  }
   if (input.kind === 'interrupt') {
     assert.ok(context.board.some(({ title }) => title === '换个数继续观察'));
     assert.ok(
@@ -207,13 +195,22 @@ function respond(context) {
     );
   }
   if (prompt.includes('Prepare one concise')) {
+    const toolCalls = context.messages.filter(
+      (entry) => entry.role === 'toolResult' && entry.toolName === 'mock_calc',
+    ).length;
+    if (toolCalls < 2) {
+      return fauxAssistantMessage(
+        fauxToolCall('mock_calc', { amount: 2 + toolCalls, api_key: 'fake-tool-input-secret' }),
+        { stopReason: 'toolUse' },
+      );
+    }
     return fauxAssistantMessage(
       fauxToolCall('emit_result', {
         value: {
           keypoints: [
             {
               id: 'pairing',
-              title: '两两配对',
+              title: '用配对识别落单',
               objective: '每两个物件组成一对。',
               depth: 'intuition',
             },
@@ -230,15 +227,9 @@ function respond(context) {
       { stopReason: 'toolUse' },
     );
   }
-  const toolCalls = context.messages.filter(
-    (entry) => entry.role === 'toolResult' && entry.toolName === 'mock_calc',
-  ).length;
-  const value = nextOutput(prompt, toolCalls);
-  const call =
-    value && typeof value === 'object' && 'tool' in value
-      ? fauxToolCall(value.tool, value.arguments)
-      : fauxToolCall('emit_result', { value });
-  return fauxAssistantMessage(call, { stopReason: 'toolUse' });
+  return fauxAssistantMessage(fauxToolCall('emit_result', { value: nextOutput(prompt) }), {
+    stopReason: 'toolUse',
+  });
 }
 
 mock.setResponses([respond]);

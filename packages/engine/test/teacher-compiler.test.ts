@@ -186,3 +186,23 @@ test('the final resolution still leads its recap; the final content beat needs a
   reject(context, { ...finalScene, next_ask }, /close the lesson/);
   reject(context, { ...scene('misconception'), next_ask: undefined }, /hand off/);
 });
+
+test('a prerequisite may fill the fourth slot but may not expand a lesson beyond it', () => {
+  const extra = { ...answeredContext.keypoints[1], id: 'extra' };
+  const context = { ...answeredContext, keypoints: [...answeredContext.keypoints, extra] };
+  const scaffold = scene('missing_prereq');
+  const inserted = {
+    id: 'prereq',
+    title: '怎样分成一对',
+    objective: '能摆出成对物件。',
+    depth: 'intuition',
+  };
+  const fourth = compileTeacherTurn(context, { ...scaffold, insert_keypoint: inserted });
+  assert.ok(fourth.ok);
+  assert.equal(fourth.keypoints.length, 4);
+  const full = { ...context, keypoints: fourth.keypoints };
+  reject(full, { ...scaffold, insert_keypoint: { ...inserted, id: 'fifth' } }, /insert_keypoint/);
+  const withinBudget = compileTeacherTurn(full, scaffold);
+  assert.ok(withinBudget.ok);
+  assert.equal(withinBudget.keypoints.length, 4);
+});

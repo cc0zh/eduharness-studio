@@ -213,7 +213,7 @@ test('M2-3 Chromium: loopback curriculum, lazy unlock, persistence and authorita
   assert.deepEqual(errors, []);
   assert.deepEqual(external, []);
   assert.equal(logs().includes(modelMockKey), false);
-  for (const [name, bytes] of Object.entries(databaseFiles())) {
+  for (const [name, bytes] of Object.entries(await databaseFiles())) {
     assert.equal(bytes.includes(modelMockKey), false, `BYOK key persisted in ${name}`);
   }
   console.log(

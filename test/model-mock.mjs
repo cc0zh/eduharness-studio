@@ -1,35 +1,11 @@
 import { createServer } from 'node:http';
+import { countingScene, firstLesson } from './model-first-lesson-mock.mjs';
 
 export const modelMockKey = 'synthetic-model-list-sentinel';
 export const modelMockList = [
   { id: 'loop/tutor:v1', name: 'Loopback Tutor' },
   { id: 'loop/reasoner:v2', name: 'Loopback Reasoner' },
 ];
-
-function teacherOutput(status, classroom) {
-  const measurementLesson = String(classroom?.topic ?? '').includes('温度测量');
-  return {
-    diagnosis: {
-      status,
-      summary: status === 'opening' ? '先预测合并后的数量。' : '沿着学生的选择澄清推理。',
-      strategy: '用已核对的算式构造直觉选项。',
-    },
-    panels: [
-      {
-        title: '先观察合并',
-        content: '2 + 3 = ?',
-        highlight: '2 + 3',
-        voiceover: '把两组物件合在一起，再数一数。',
-      },
-    ],
-    next_ask: measurementLesson
-      ? {
-          prompt: '报警后的概率应该先看哪一组？',
-          options: ['分母只包含已经报警的样本', '所有带标签的样本'],
-        }
-      : { prompt: '两组合并后共有多少？', options: ['4 个', '5 个'] },
-  };
-}
 
 function teacherContext(body) {
   const prompt = body.messages.find(({ role }) => role === 'user')?.content;
@@ -44,7 +20,23 @@ function teacherContext(body) {
   }
 }
 
-function modelCourse() {
+function modelCourse(counting) {
+  if (counting)
+    return {
+      title: '数量合并的学习路线',
+      units: [
+        {
+          title: '合并两组物件',
+          lessons: [
+            {
+              title: '两组物件的总数',
+              summary: '比较分组数量与合并后的总数。',
+              depth: 'intuition',
+            },
+          ],
+        },
+      ],
+    };
   return {
     title: '测量数据的学习路线',
     units: [
@@ -222,6 +214,7 @@ export async function startModelMock(
         const hasToolResult = body.messages.some(({ role }) => role === 'tool');
         const classroom = teacher ? teacherContext(body) : undefined;
         const prompt = body.messages.find(({ role }) => role === 'user')?.content;
+        const counting = String(prompt).includes('"topic":"数量合并"');
         const drawsGraph = typeof prompt === 'string' && prompt.includes('绘图任务');
         if (drawsGraph && graph === 'timeout')
           await new Promise((resolve) => setTimeout(resolve, 8_000));
@@ -242,7 +235,7 @@ export async function startModelMock(
         ) {
           functionCall = {
             name: 'emit_result',
-            arguments: JSON.stringify({ value: modelCourse() }),
+            arguments: JSON.stringify({ value: modelCourse(counting) }),
           };
         } else if (
           courses &&
@@ -250,12 +243,17 @@ export async function startModelMock(
           prompt.includes('Prepare one concise')
         ) {
           if (unlockDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, unlockDelayMs));
-          functionCall = {
-            name: 'emit_result',
-            arguments: JSON.stringify({
-              value: modelLesson(String(prompt).includes('三角形') && graph),
-            }),
-          };
+          functionCall =
+            counting && hasCalcVerify && !hasToolResult
+              ? { name: 'calc_verify', arguments: JSON.stringify({ expression: '2 + 3' }) }
+              : {
+                  name: 'emit_result',
+                  arguments: JSON.stringify({
+                    value: prompt.includes('"id":"u1-l1"')
+                      ? firstLesson(counting)
+                      : modelLesson(prompt.includes('三角形') && graph),
+                  }),
+                };
         } else if (
           teacher &&
           classroom?.input?.kind === 'answer' &&
@@ -265,20 +263,9 @@ export async function startModelMock(
             name: 'emit_result',
             arguments: JSON.stringify({ value: teacherAnswer(classroom) }),
           };
-        } else if (
-          teacher &&
-          classroom?.input?.kind === 'opening' &&
-          hasCalcVerify &&
-          !hasToolResult
-        ) {
-          functionCall = {
-            name: 'calc_verify',
-            arguments: JSON.stringify({ expression: '2 + 3' }),
-          };
         } else if (teacher) {
-          const opening = classroom?.input?.kind === 'opening';
-          const value = teacherOutput(opening ? 'opening' : 'clarifying', classroom);
-          if (!opening && !triedPrematureResolution) {
+          const value = countingScene('clarifying');
+          if (!triedPrematureResolution) {
             // An ordinary choice answer is not a transfer check. Exercise the real phase schema.
             value.resolution = { text: '提出了一个判断。', conclusion: '还不能据此过关。' };
             triedPrematureResolution = true;

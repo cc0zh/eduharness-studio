@@ -1,25 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { projectPlayedDialogue } from '@eduharness-studio/engine';
-import { afterSkip, makeFixture, opening, startAtAsk } from './teacher-test-support.js';
+import { afterSkip, lessonDraft, makeFixture, startAtAsk } from './teacher-test-support.js';
 
 const recapLine = '这段原计划回顾还没有上屏。';
 const closingLine = '只根据已确认的结论收尾。';
 
 for (const mode of ['natural', 'interrupt', 'offline'] as const) {
   test(`final resolution and its recap finish correctly via ${mode}`, async (t) => {
-    const { faux, store, structured, options } = makeFixture(t);
-    const original = options(false);
-    faux.setResponses([structured(opening)]);
-    const live = await startAtAsk(store, () =>
-      store.start({
-        ...original,
-        buildScript() {
-          const script = original.buildScript();
-          return { ...script, keypoints: script.keypoints.slice(0, 2) };
-        },
-      }),
-    );
+    const { faux, store, structured, start } = makeFixture(t);
+    faux.setResponses([structured(lessonDraft())]);
+    const live = await startAtAsk(store, start);
     const { id, stream } = live;
     let generation = live.generation;
     const issue = () => {

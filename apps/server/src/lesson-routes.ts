@@ -2,17 +2,14 @@ import {
   evaluateOfflineQuality,
   type LessonEnd,
   type LessonMetadata,
-  offlineLesson,
   projectPlayedDialogue,
   type SessionQuality,
 } from '@eduharness-studio/engine';
-import type { ModelGateway } from '@eduharness-studio/engine/models';
-import { createTeacherPlanner, type TeacherTool } from '@eduharness-studio/engine/teacher';
 import { Type } from '@sinclair/typebox';
 import { type Context, Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { type CourseStore, isDemoCourse, isRetiredDemo } from './course-store.js';
-import type { StudioDatabase } from './db.js';
+import { type CourseStore, isRetiredDemo } from './course-store.js';
+import { generationFailure, type LessonLifecycle } from './lesson-lifecycle.js';
 import { checked, RouteIdSchema } from './request-validation.js';
 import {
   AnswerSchema,
@@ -22,7 +19,7 @@ import {
   ResumeSchema,
   StartSchema,
 } from './session-input.js';
-import { createSessionStore } from './session-store.js';
+import type { createSessionStore } from './session-store.js';
 
 const LessonParams = Type.Object({ courseId: RouteIdSchema, lessonId: RouteIdSchema });
 const SessionParams = Type.Object({ sessionId: RouteIdSchema });
@@ -39,34 +36,54 @@ function writeStatus(error: string) {
   return 409;
 }
 
+function failedOpening(
+  c: Context,
+  error: unknown,
+  code: 'lesson_generation_failed' | 'teacher_turn_failed',
+) {
+  const failure = generationFailure(error);
+  const detail = failure.reasons?.join(' | ') ?? '';
+  console.error(
+    `[studio] 502 ${c.req.method} ${c.req.path} ${code}/${failure.failure}${detail ? `: ${detail}` : ''}`,
+  );
+  return c.json({ error: code, ...failure }, 502);
+}
+
 export function createLessonRoutes(
   courses: CourseStore,
-  database: StudioDatabase,
-  gateway: ModelGateway,
-  tools?: readonly TeacherTool[],
+  lifecycle: LessonLifecycle,
+  sessions: ReturnType<typeof createSessionStore>,
 ) {
-  const sessions = createSessionStore(database, createTeacherPlanner(gateway, tools));
   const routes = new Hono();
 
   function resolveLesson({ courseId, lessonId }: { courseId: string; lessonId: string }) {
     if (isRetiredDemo(courseId)) return { error: 'demo_retired', status: 410 } as const;
-    const course = courses.get(courseId);
-    const lesson = course?.units
-      .flatMap(({ lessons }) => lessons)
-      .find(({ id }) => id === lessonId);
+    const { course, lesson } = courses.lesson(courseId, lessonId);
     if (!course || !lesson) return { error: 'lesson_not_found', status: 404 } as const;
     if (lesson.status === 'locked') return { error: 'lesson_locked', status: 409 } as const;
-    return { course, lesson, material: courses.material(courseId, lessonId) };
+    return { course, lesson };
   }
 
   routes.get(LESSON_PATH, checked('param', LessonParams), async (c) => {
     const result = resolveLesson(c.req.valid('param'));
     if (!result.course) return c.json({ error: result.error }, result.status);
-    const live = !isDemoCourse(result.course.id) && (await gateway.getStatus()).mode === 'live';
-    const script = live
-      ? (result.material?.script ?? offlineLesson(result.course, result.lesson))
-      : offlineLesson(result.course, result.lesson);
-    return c.json({ keypoints: script.keypoints } satisfies LessonMetadata);
+    c.header('Cache-Control', 'no-store');
+    const { course, lesson } = result;
+    const active = sessions.outline(course.id, lesson.id);
+    if (active) {
+      // Leave a retired lesson's outline empty so the whiteboard can offer an explicit restart.
+      // A recoverable session already owns its outline, even after a model-mode change.
+      const keypoints = 'error' in active ? [] : active;
+      return c.json({ keypoints } satisfies LessonMetadata);
+    }
+    try {
+      const prepared = await lifecycle.prepare(course, lesson);
+      return 'error' in prepared
+        ? c.json(prepared, 409)
+        : c.json({ keypoints: prepared.script.keypoints } satisfies LessonMetadata);
+    } catch (error) {
+      return failedOpening(c, error, 'lesson_generation_failed');
+    }
   });
 
   routes.get(`${LESSON_PATH}/sessions/active`, checked('param', LessonParams), (c) => {
@@ -86,29 +103,20 @@ export function createLessonRoutes(
       const params = c.req.valid('param');
       const result = resolveLesson(params);
       if (!result.course) return c.json({ error: result.error }, result.status);
-      const live = !isDemoCourse(params.courseId) && (await gateway.getStatus()).mode === 'live';
-      const material = live ? result.material : undefined;
-      const started = await sessions.start({
-        ...params,
-        topic: result.course.topic,
-        buildScript: () => material?.script ?? offlineLesson(result.course, result.lesson),
-        restart: c.req.valid('json').restart === true,
-        live,
-        preplanned: Boolean(material),
-        basis: material?.basis,
-        openingEvidence: material?.openingEvidence,
-      });
-      if ('error' in started) {
-        const status = writeStatus(started.error);
-        if (status === 502) {
-          const detail = 'reasons' in started && started.reasons ? started.reasons.join(' | ') : '';
-          console.error(
-            `[studio] 502 POST ${c.req.path} ${started.error}${'failure' in started && started.failure ? `/${started.failure}` : ''}${detail ? `: ${detail}` : ''}`,
-          );
-        }
-        return c.json(started, status);
+      const { course, lesson } = result;
+      try {
+        const started = await sessions.start({
+          ...params,
+          topic: course.topic,
+          prepare: () => lifecycle.prepare(course, lesson),
+          restart: c.req.valid('json').restart === true,
+        });
+        return 'error' in started
+          ? c.json(started, writeStatus(started.error))
+          : c.json(started.snapshot, started.created ? 201 : 200);
+      } catch (error) {
+        return failedOpening(c, error, 'teacher_turn_failed');
       }
-      return c.json(started.snapshot, started.created ? 201 : 200);
     },
   );
 

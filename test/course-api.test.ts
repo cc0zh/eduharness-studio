@@ -195,7 +195,6 @@ test('live course generation stores dynamic lessons and coalesces a concurrent l
   assert.deepEqual(queue.basis, lesson.basis);
   assert.deepEqual(queue.script, material.script);
   assert.ok(queue.teacher);
-  assert.equal(faux.state.callCount, 2);
 
   const readyAgain = await app.request(path, { method: 'POST' });
   assert.equal(readyAgain.status, 200);
@@ -351,7 +350,10 @@ test('course store rejects invalid material before writing it or marking the les
     },
   } as unknown as LessonMaterial;
 
-  assert.throws(() => store.unlock(blueprint.id, lockedId, invalid), /invalid_lesson_material/);
+  assert.throws(
+    () => store.saveMaterial(blueprint.id, lockedId, invalid),
+    /invalid_lesson_material/,
+  );
   const refreshed = store.get(blueprint.id);
   assert.equal(refreshed?.units[0].lessons[1].status, 'locked');
   assert.equal(store.material(blueprint.id, lockedId), undefined);

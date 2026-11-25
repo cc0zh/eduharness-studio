@@ -76,7 +76,7 @@ async function finish(t, graph) {
   assert.equal(external.length, 0);
   assert.deepEqual(errors, []);
   assert.equal(logs().includes(modelMockKey), false);
-  for (const bytes of Object.values(databaseFiles()))
+  for (const bytes of Object.values(await databaseFiles()))
     assert.equal(bytes.includes(modelMockKey), false);
   const requests = mock.calls.filter(
     ({ path, method }) => path === '/v1/chat/completions' && method === 'POST',

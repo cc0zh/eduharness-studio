@@ -253,7 +253,7 @@ test('M2-2 Chromium faux: choice, transfer mastery, prerequisite restore, low ef
   await screenshot(page, '07-xray-model-and-tool-spans.png');
 
   const secrets = ['faux-browser-test-only', 'fake-tool-input-secret', 'fake-tool-result-secret'];
-  const files = databaseFiles();
+  const files = await databaseFiles();
   assert.ok(files['studio.sqlite']?.length > 0);
   for (const secret of secrets) {
     assert.equal(JSON.stringify(trace).includes(secret), false);

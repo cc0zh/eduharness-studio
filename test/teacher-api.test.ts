@@ -1,19 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { type TestContext, test } from 'node:test';
-import { demoCourses, offlineLesson } from '@eduharness-studio/engine';
-import {
-  createFauxModelGateway,
-  fauxAssistantMessage,
-  fauxToolCall,
-} from '@eduharness-studio/engine/models';
+import { test } from 'node:test';
+import { fauxAssistantMessage, fauxToolCall } from '@eduharness-studio/engine/models';
 import { createTeacherPlanner } from '@eduharness-studio/engine/teacher';
 import { Type } from '@sinclair/typebox';
 import { openStudioDatabase } from '../apps/server/src/db.js';
+import { sessionDatabase } from '../apps/server/src/session-db.js';
 import { createSessionStore } from '../apps/server/src/session-store.js';
-import { afterSkip, opening, scaffold } from './teacher-test-support.js';
+import { afterSkip, lessonDraft, makeFixture, scaffold } from './teacher-test-support.js';
 
 const inserted = {
   diagnosis: {
@@ -38,54 +31,6 @@ const inserted = {
   next_ask: { prompt: '四块积木可以分成几对？' },
 };
 
-function makeFixture(t: TestContext) {
-  const directory = mkdtempSync(join(tmpdir(), 'eduharness-teacher-'));
-  const path = join(directory, 'studio.sqlite');
-  const database = openStudioDatabase(path);
-  const faux = createFauxModelGateway();
-  assert.ok(
-    faux.gateway.setByok({ provider: 'faux', modelId: 'faux-1', apiKey: 'faux-mock-only' }),
-  );
-  const store = createSessionStore(database, createTeacherPlanner(faux.gateway));
-  const source = demoCourses[0];
-  const course = {
-    ...source,
-    id: 'course-teacher-mock',
-    topic: '奇偶性',
-    title: '奇偶性',
-    units: [
-      {
-        ...source.units[0],
-        lessons: [
-          {
-            ...source.units[0].lessons[0],
-            id: 'lesson-teacher-mock',
-            title: '奇偶性',
-            summary: '通过配对理解奇偶性。',
-          },
-        ],
-      },
-    ],
-  };
-  const script = offlineLesson(course, course.units[0].lessons[0]);
-  t.after(() => {
-    database.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 8, retryDelay: 120 });
-  });
-  const structured = (value: unknown) =>
-    fauxAssistantMessage(fauxToolCall('emit_result', { value }), { stopReason: 'toolUse' });
-  const start = () =>
-    store.start({
-      courseId: course.id,
-      lessonId: course.units[0].lessons[0].id,
-      topic: course.topic,
-      buildScript: () => script,
-      restart: false,
-      live: true,
-    });
-  return { database, path, faux, store, script, start, structured, course };
-}
-
 function reachAsk(store: ReturnType<typeof createSessionStore>, id: string, generation: number) {
   const stream = store.openStream(id, generation);
   assert.ok(stream && !('error' in stream));
@@ -103,7 +48,7 @@ function reachAsk(store: ReturnType<typeof createSessionStore>, id: string, gene
 
 test('SQLite teacher turns insert prerequisites atomically, downgrade low effort, and restore unverified progress', async (t) => {
   const fixture = makeFixture(t);
-  fixture.faux.setResponses([fixture.structured(opening)]);
+  fixture.faux.setResponses([fixture.structured(lessonDraft())]);
   const started = await fixture.start();
   assert.ok('snapshot' in started);
   const id = started.snapshot.session_id;
@@ -121,7 +66,7 @@ test('SQLite teacher turns insert prerequisites atomically, downgrade low effort
     insertion.keypoints.map(({ id: point, status }) => [point, status]).slice(0, 2),
     [
       ['pre-groups', 'active'],
-      ['focus-1', 'pending'],
+      ['leftover', 'pending'],
     ],
   );
   assert.equal(
@@ -174,12 +119,12 @@ test('SQLite teacher turns insert prerequisites atomically, downgrade low effort
     acknowledged.keypoints?.map(({ id: point, status }) => [point, status]).slice(0, 2),
     [
       ['pre-groups', 'unverified'],
-      ['focus-1', 'active'],
+      ['leftover', 'active'],
     ],
   );
   const refreshedDb = openStudioDatabase(fixture.path);
   try {
-    const restored = createSessionStore(refreshedDb).active(
+    const restored = createSessionStore(sessionDatabase(refreshedDb.db)).active(
       fixture.course.id,
       fixture.course.units[0].lessons[0].id,
     );
@@ -189,7 +134,7 @@ test('SQLite teacher turns insert prerequisites atomically, downgrade low effort
       restored.keypoints?.map(({ id: point, status }) => [point, status]).slice(0, 2),
       [
         ['pre-groups', 'unverified'],
-        ['focus-1', 'active'],
+        ['leftover', 'active'],
       ],
     );
   } finally {
@@ -199,7 +144,7 @@ test('SQLite teacher turns insert prerequisites atomically, downgrade low effort
 
 test('a stale faux result cannot overwrite a session claimed while the model was pending', async (t) => {
   const fixture = makeFixture(t);
-  fixture.faux.setResponses([fixture.structured(opening)]);
+  fixture.faux.setResponses([fixture.structured(lessonDraft())]);
   const started = await fixture.start();
   assert.ok('snapshot' in started);
   const { session_id: id, generation } = started.snapshot;
@@ -252,23 +197,16 @@ test('tool trace spans stay redacted at the SQLite boundary', async (t) => {
     },
   ];
   const sessions = createSessionStore(
-    fixture.database,
+    sessionDatabase(fixture.database.db),
     createTeacherPlanner(fixture.faux.gateway, tools),
   );
   fixture.faux.setResponses([
     fauxAssistantMessage(fauxToolCall('mock_sum', { amount: 2, api_key: 'input-secret' }), {
       stopReason: 'toolUse',
     }),
-    fixture.structured(opening),
+    fixture.structured(lessonDraft()),
   ]);
-  const started = await sessions.start({
-    courseId: fixture.course.id,
-    lessonId: fixture.course.units[0].lessons[0].id,
-    topic: fixture.course.topic,
-    buildScript: () => fixture.script,
-    restart: false,
-    live: true,
-  });
+  const started = await sessions.start(fixture.options(false, true, tools));
   assert.ok('snapshot' in started);
   const trace = sessions.inspect(started.snapshot.session_id)?.trace;
   assert.ok(trace);
@@ -282,7 +220,7 @@ test('tool trace spans stay redacted at the SQLite boundary', async (t) => {
 
 test('exhausted replans keep the confirmed classroom and record the rejection', async (t) => {
   const { start, store, faux, structured } = makeFixture(t);
-  faux.setResponses([structured(opening)]);
+  faux.setResponses([structured(lessonDraft())]);
   const started = await start();
   assert.ok('snapshot' in started);
   const { session_id: id, generation } = started.snapshot;

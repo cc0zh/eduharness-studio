@@ -1,24 +1,26 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { makeFixture, startAtAsk } from './teacher-test-support.js';
+import { lessonDraft, makeFixture, startAtAsk } from './teacher-test-support.js';
 
 test('teacher receives the selected label, not the generated option ID, after shuffling', async (t) => {
   const fixture = makeFixture(t);
   const label = '分母只包含已经报警的样本';
   const labels = [label, '所有带标签的样本'];
   fixture.faux.setResponses([
-    fixture.structured({
-      diagnosis: { status: 'opening', summary: '先辨认条件。', strategy: '从样本集合开始。' },
-      panels: [
-        {
-          title: '样本集合',
-          content: '条件决定先筛选哪一组。',
-          highlight: '条件',
-          voiceover: '先辨认题目已经告诉我们的条件。',
-        },
-      ],
-      next_ask: { prompt: '报警后的概率以哪一组为分母？', options: labels },
-    }),
+    fixture.structured(
+      lessonDraft({
+        diagnosis: { status: 'opening', summary: '先辨认条件。', strategy: '从样本集合开始。' },
+        panels: [
+          {
+            title: '样本集合',
+            content: '条件决定先筛选哪一组。',
+            highlight: '条件',
+            voiceover: '先辨认题目已经告诉我们的条件。',
+          },
+        ],
+        next_ask: { prompt: '报警后的概率以哪一组为分母？', options: labels },
+      }),
+    ),
   ]);
   const live = await startAtAsk(fixture.store, () => fixture.store.start(fixture.options(false)));
   assert.ok(live.ask.mode === 'choice' && live.ask.options);

@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { createConnection, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { readBrowserDatabaseFiles } from './browser-database-files.mjs';
 import { offlineServerEnv } from './studio-test-env.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -344,11 +345,6 @@ export async function startBrowserFixture(
   });
   page.on('pageerror', (error) => errors.push(error.message));
   const logs = () => nodes.map((node) => node.logs()).join('\n');
-  const databaseFiles = () =>
-    Object.fromEntries(
-      readdirSync(directory)
-        .filter((name) => name.startsWith('studio.sqlite'))
-        .map((name) => [name, readFileSync(join(directory, name))]),
-    );
+  const databaseFiles = () => readBrowserDatabaseFiles(directory);
   return { page, url, errors, logs, databaseFiles };
 }

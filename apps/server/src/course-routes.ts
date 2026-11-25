@@ -6,84 +6,26 @@ import {
   IntakeStartSchema,
   type LessonEntry,
   nextIntake,
-  offlineLesson,
   startIntake,
 } from '@eduharness-studio/engine';
-import {
-  CourseLessonPlanningError,
-  createCourseBlueprintPlanner,
-  createCourseLessonPlanner,
-} from '@eduharness-studio/engine/course';
-import { type ModelGateway, ModelGenerationError } from '@eduharness-studio/engine/models';
+import { createCourseBlueprintPlanner } from '@eduharness-studio/engine/course';
+import type { ModelGateway } from '@eduharness-studio/engine/models';
 import { Type } from '@sinclair/typebox';
 import { Hono } from 'hono';
-import { type CourseStore, isDemoCourse, isRetiredDemo } from './course-store.js';
+import { type CourseStore, isRetiredDemo } from './course-store.js';
+import { generationFailure, type LessonLifecycle } from './lesson-lifecycle.js';
 import { checked, RouteIdSchema } from './request-validation.js';
 
 const CourseParamsSchema = Type.Object({ courseId: RouteIdSchema });
 const UnlockParamsSchema = Type.Object({ courseId: RouteIdSchema, lessonId: RouteIdSchema });
 
-function generationFailure(error: unknown) {
-  if (error instanceof ModelGenerationError) {
-    return {
-      failure: error.code,
-      ...(error.reasons.length ? { reasons: error.reasons } : {}),
-    };
-  }
-  if (error instanceof CourseLessonPlanningError) {
-    return { failure: error.code, reasons: error.reasons };
-  }
-  return { failure: 'generation_failed' };
-}
-
-export function createCourseRoutes(courses: CourseStore, gateway: ModelGateway) {
+export function createCourseRoutes(
+  courses: CourseStore,
+  gateway: ModelGateway,
+  lifecycle: LessonLifecycle,
+) {
   const routes = new Hono();
   const planBlueprint = createCourseBlueprintPlanner(gateway);
-  const planLesson = createCourseLessonPlanner(gateway);
-  const unlocks = new Map<
-    string,
-    Promise<{ lessonId: string; status: 'ready' } | { error: string }>
-  >();
-
-  async function unlock(courseId: string, lessonId: string) {
-    const key = `${courseId}/${lessonId}`;
-    const pending = unlocks.get(key);
-    if (pending) return pending;
-    const result = (async () => {
-      const course = courses.get(courseId);
-      if (!course) return { error: 'course_not_found' } as const;
-      const lesson = course.units
-        .flatMap(({ lessons }) => lessons)
-        .find(({ id }) => id === lessonId);
-      if (!lesson) return { error: 'lesson_not_found' } as const;
-      if (lesson.status !== 'locked') return { lessonId, status: 'ready' as const };
-
-      const saved = courses.material(courseId, lessonId);
-      const material =
-        saved ??
-        (!isDemoCourse(courseId) && (await gateway.getStatus()).mode === 'live'
-          ? (
-              await planLesson({
-                course,
-                lesson,
-                previousKeypoints: courses.previousKeypoints(courseId, lessonId),
-              })
-            ).material
-          : { script: offlineLesson(course, lesson) });
-      const updated = courses.unlock(courseId, lessonId, material);
-      return updated ? { lessonId, status: 'ready' as const } : { error: 'lesson_not_found' };
-    })();
-    unlocks.set(key, result);
-    void result.then(
-      () => {
-        if (unlocks.get(key) === result) unlocks.delete(key);
-      },
-      () => {
-        if (unlocks.get(key) === result) unlocks.delete(key);
-      },
-    );
-    return result;
-  }
 
   routes.get('/courses', (c) => c.json(courses.list()));
 
@@ -135,13 +77,14 @@ export function createCourseRoutes(courses: CourseStore, gateway: ModelGateway) 
     '/courses/:courseId/lessons/:lessonId/unlock',
     checked('param', UnlockParamsSchema),
     async (c) => {
+      const { courseId, lessonId } = c.req.valid('param');
+      const { course, lesson } = courses.lesson(courseId, lessonId);
+      if (!course) return c.json({ error: 'course_not_found' }, 404);
+      if (!lesson) return c.json({ error: 'lesson_not_found' }, 404);
       try {
-        const result = await unlock(c.req.valid('param').courseId, c.req.valid('param').lessonId);
-        if (!('error' in result)) return c.json(result);
-        return c.json(
-          result,
-          result.error === 'course_not_found' || result.error === 'lesson_not_found' ? 404 : 409,
-        );
+        const result = await lifecycle.unlock(course, lesson);
+        if ('error' in result) return c.json(result, 409);
+        return c.json(result);
       } catch (error) {
         const failure = generationFailure(error);
         const detail = failure.reasons?.join(' | ') ?? '';

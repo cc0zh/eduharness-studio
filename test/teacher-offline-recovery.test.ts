@@ -3,16 +3,17 @@ import { test } from 'node:test';
 import type { Action } from '@eduharness-studio/engine';
 import { createFauxModelGateway } from '@eduharness-studio/engine/models';
 import { createTeacherPlanner } from '@eduharness-studio/engine/teacher';
+import { sessionDatabase } from '../apps/server/src/session-db.js';
 import { createSessionStore } from '../apps/server/src/session-store.js';
-import { makeFixture, opening, startAtAsk } from './teacher-test-support.js';
+import { lessonDraft, makeFixture, startAtAsk } from './teacher-test-support.js';
 
 test('an offline gateway marks the answered point unverified and continues deterministically', async (t) => {
   const fixture = makeFixture(t);
-  fixture.faux.setResponses([fixture.structured(opening)]);
+  fixture.faux.setResponses([fixture.structured(lessonDraft())]);
   const live = await startAtAsk(fixture.store, () => fixture.store.start(fixture.options(false)));
   const offlineGateway = createFauxModelGateway();
   const offlineStore = createSessionStore(
-    fixture.database,
+    sessionDatabase(fixture.database.db),
     createTeacherPlanner(offlineGateway.gateway),
   );
   const receipt = await offlineStore.answer(live.id, {
@@ -77,11 +78,11 @@ test('an offline gateway marks the answered point unverified and continues deter
 
 test('offline first low effort gets a two-choice scaffold; repeated low effort advances unverified', async (t) => {
   const fixture = makeFixture(t);
-  fixture.faux.setResponses([fixture.structured(opening)]);
+  fixture.faux.setResponses([fixture.structured(lessonDraft())]);
   const live = await startAtAsk(fixture.store, () => fixture.store.start(fixture.options(false)));
   const offlineGateway = createFauxModelGateway();
   const offlineStore = createSessionStore(
-    fixture.database,
+    sessionDatabase(fixture.database.db),
     createTeacherPlanner(offlineGateway.gateway),
   );
   const first = await offlineStore.answer(live.id, {

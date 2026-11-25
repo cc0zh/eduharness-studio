@@ -1,12 +1,15 @@
 import { PROTOCOL_VERSION } from '@eduharness-studio/engine';
 import { createModelGateway, type ModelGateway } from '@eduharness-studio/engine/models';
-import type { TeacherTool } from '@eduharness-studio/engine/teacher';
+import { createTeacherPlanner, type TeacherTool } from '@eduharness-studio/engine/teacher';
 import { Hono } from 'hono';
 import { createCourseRoutes } from './course-routes.js';
 import { createCourseStore } from './course-store.js';
 import type { StudioDatabase } from './db.js';
+import { createLessonLifecycle } from './lesson-lifecycle.js';
 import { createLessonRoutes } from './lesson-routes.js';
 import { createModelRoutes } from './model-routes.js';
+import { sessionDatabase } from './session-db.js';
+import { createSessionStore } from './session-store.js';
 
 export interface ServerAppOptions {
   database: StudioDatabase;
@@ -54,8 +57,11 @@ export function createServerApp({
   });
 
   const courses = createCourseStore(database);
+  const store = sessionDatabase(database.db);
+  const lifecycle = createLessonLifecycle(courses, store, modelGateway, teacherTools);
+  const sessions = createSessionStore(store, createTeacherPlanner(modelGateway, teacherTools));
   app.route('/api', createModelRoutes(modelGateway, modelFetch));
-  app.route('/api', createCourseRoutes(courses, modelGateway));
-  app.route('/api', createLessonRoutes(courses, database, modelGateway, teacherTools));
+  app.route('/api', createCourseRoutes(courses, modelGateway, lifecycle));
+  app.route('/api', createLessonRoutes(courses, lifecycle, sessions));
   return app;
 }
