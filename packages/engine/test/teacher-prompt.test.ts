@@ -301,6 +301,15 @@ test('turn schemas omit opening, ordinary-answer and interruption fields that th
     ],
   };
   assert.equal(Value.Check(verifiedSchema, completedTurn), true);
+  assert.equal(
+    Value.Check(verifiedSchema, {
+      ...completedTurn,
+      actions: completedTurn.actions.map((action) =>
+        action.type === 'ask' ? { ...action, checkpoint: 'verify' as const } : action,
+      ),
+    }),
+    false,
+  );
 
   const interruptionContext: TeacherTurnContext = {
     ...context,
@@ -388,4 +397,32 @@ test('teacher layout auto-paginates new keypoints and balances left-to-right col
     [1, 1, 2],
   );
   assert.equal(result.progress.highWater, result.actions.at(-1)?.step_id);
+
+  const zigzagFollowUp: TeacherTurnOutput = {
+    diagnosis: { status: 'clarifying', summary: '再辨析一次。', strategy: '换新页对照。' },
+    actions: [
+      { type: 'board', column: 1, card_id: 's20-b1', title: '卡点', content: '先看判据。' },
+      { type: 'board', column: 2, card_id: 's20-b2', title: '对照', content: '左右对照。' },
+      { type: 'board', column: 1, card_id: 's20-b3', title: '补注', content: '不回跳左栏。' },
+      { type: 'ask', card_id: 's20-q1', mode: 'open', prompt: '换成新物体怎么判断？' },
+    ],
+  };
+  faux.setResponses([emit(zigzagFollowUp)]);
+  const followUp = await createTeacherPlanner(faux.gateway, [])(
+    {
+      ...context,
+      played: [
+        { type: 'board', step_id: 1, column: 1, card_id: 's1-b1', content: '左栏' },
+        { type: 'board', step_id: 2, column: 2, card_id: 's1-b2', content: '右栏' },
+        previousAsk,
+      ],
+    },
+    [],
+  );
+  assert.ok(followUp.ok, followUp.ok ? undefined : JSON.stringify(followUp));
+  assert.equal(followUp.actions[0].type, 'new_page');
+  assert.deepEqual(
+    followUp.actions.filter((action) => action.type === 'board').map(({ column }) => column),
+    [1, 2, 2],
+  );
 });

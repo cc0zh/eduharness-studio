@@ -30,7 +30,7 @@ function instructionForTurn(
     if (!canAssessMastery) {
       return '本轮的近迁移题尚未得到实质作答。不能记为掌握；针对卡住的地方给一条线索，再用普通 ask 让学生试一试。';
     }
-    return `本轮回答的是已上屏的近迁移题。仅当作答准确时用 diagnosis.status=mastered，先 speak(checkpoint=verify) 对照推理，紧接 keypoint_complete(keypoint_id="${activeKeypoint}")。若有下一要点，余下的拍引入它并停在新的普通 ask；若未答对，先搭脚手架再出一道新题。`;
+    return `本轮回答的是已上屏的近迁移题。仅当作答准确时用 diagnosis.status=mastered，且动作顺序必须严格为：speak(checkpoint=verify) 后紧接 keypoint_complete(keypoint_id="${activeKeypoint}")，中间不能插任何 board/highlight/speak；若有下一要点，在 keypoint_complete 之后再写新板书并停在普通 ask（不带 checkpoint）。若未答对，diagnosis.status 不可用 mastered，也不要发 speak(checkpoint=verify) 或 keypoint_complete，先搭脚手架再出普通 ask。`;
   }
   return '本轮回答的是普通 ask，不能记要点过关，diagnosis.status 严禁用 mastered（答对或基本理解时用 clarifying）。若已显示基本理解，用一个换数字、场景或边界条件的新题 ask(checkpoint=verify) 检验当前要点；它必须是本轮唯一且最后一拍的 ask，不能先放普通 ask；答错则先针对性搭脚手架。';
 }

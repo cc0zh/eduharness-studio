@@ -10,6 +10,7 @@ export interface BoardLayoutSummary {
   col1Count: number;
   col2Count: number;
   col3Count: number;
+  maxCol: number;
 }
 
 export function summarizeBoardLayout(actions: readonly Action[]): BoardLayoutSummary {
@@ -17,16 +18,19 @@ export function summarizeBoardLayout(actions: readonly Action[]): BoardLayoutSum
   let col1Count = 0;
   let col2Count = 0;
   let col3Count = 0;
+  let maxCol = 0;
   for (const action of actions) {
     if (action.type === 'new_page') {
       pageId = action.page_id;
       col1Count = 0;
       col2Count = 0;
       col3Count = 0;
+      maxCol = 0;
     } else if (action.type === 'board' || action.type === 'graph') {
       if (action.column === 1) col1Count++;
       else if (action.column === 2) col2Count++;
       else col3Count++;
+      if (action.column > maxCol) maxCol = action.column;
     }
   }
   return {
@@ -35,6 +39,7 @@ export function summarizeBoardLayout(actions: readonly Action[]): BoardLayoutSum
     col1Count,
     col2Count,
     col3Count,
+    maxCol,
   };
 }
 
@@ -98,7 +103,7 @@ export function normalizeTurnLayout(
   } else if (
     initialState === 'diagnose' &&
     context.input.kind !== 'opening' &&
-    initialLayout.cardsOnPage >= 4
+    (initialLayout.cardsOnPage >= 4 || initialLayout.maxCol >= 2)
   ) {
     const firstBoard = staged.findIndex(
       (action) => action.type === 'board' || action.type === 'graph',
@@ -121,27 +126,27 @@ export function normalizeTurnLayout(
 
   let col1 = initialLayout.col1Count;
   let col2 = initialLayout.col2Count;
-  let col3 = initialLayout.col3Count;
+  let maxCol = initialLayout.maxCol;
   const normalized: Action[] = staged.map((action, index) => {
     const step_id = baseStep + index + 1;
     if (action.type === 'new_page') {
       col1 = 0;
       col2 = 0;
-      col3 = 0;
+      maxCol = 0;
       return { ...action, step_id };
     }
     if (action.type === 'board' || action.type === 'graph') {
       let column = action.column;
-      if (col1 === 0 && col2 === 0 && col3 === 0 && column !== 1) {
+      if (maxCol === 0 && column !== 1) {
         column = 1;
+      } else if (column < maxCol) {
+        column = maxCol as 1 | 2 | 3;
       } else if (column === 1 && col1 >= 2 && col2 === 0) {
-        column = 2;
-      } else if (column === 1 && col2 > 0 && col1 >= col2) {
         column = 2;
       }
       if (column === 1) col1++;
       else if (column === 2) col2++;
-      else col3++;
+      if (column > maxCol) maxCol = column;
       return { ...action, column, step_id };
     }
     return { ...action, step_id };

@@ -49,7 +49,7 @@ export function teacherTurnSchemaForContext(context: TeacherTurnContext) {
     insertKeypoint: canInsertKeypoint,
     keypointComplete: canAssessMastery,
     keypointUnverified: canMarkUnverified,
-    askCheckpoint: eligibleAnswer && evidence.substantive,
+    askCheckpoint: eligibleAnswer && evidence.substantive && evidence.ask?.checkpoint !== 'verify',
     speakCheckpoint: canAssessMastery,
   });
 }
