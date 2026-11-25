@@ -143,21 +143,31 @@ test('lazy lesson opening correction explicitly removes insertions and premature
     previousKeypoints: [],
   });
   assert.match(openingPrompt, /omit insert_keypoint/);
-  assert.match(openingPrompt, /exactly one ordinary ask as the final action/);
-  assert.match(openingPrompt, /omit its checkpoint/);
+  assert.match(openingPrompt, /omit insert_keypoint, keypoint_complete and keypoint_unverified/);
+  assert.match(openingPrompt, /exactly one ordinary ask/);
+  assert.match(openingPrompt, /final beat and must omit checkpoint/);
   assert.match(openingPrompt, /Never use ask\(checkpoint=verify\)/);
-  assert.match(retryPrompt, /omit insert_keypoint on the opening turn/);
-  assert.match(retryPrompt, /verify ask must be a new near-transfer question/);
+  assert.match(
+    retryPrompt,
+    /Rewrite the complete opening and fix these previous guardrail reasons/,
+  );
+  assert.match(retryPrompt, /model_invalid_output/);
+  assert.match(
+    retryPrompt,
+    /invalid structured output at \$\.opening\.insert_keypoint: unexpected field/,
+  );
+  assert.match(
+    retryPrompt,
+    /invalid structured output at \$\.opening\.actions\[3\]\.checkpoint: unexpected field/,
+  );
   assert.ok(validateLessonMaterial(planned.material));
-  assert.deepEqual(planned.material.openingEvidence?.guardrails, [
-    {
-      attempt: 1,
-      reasons: [
-        'omit insert_keypoint on the opening turn',
-        'verify ask must be a new near-transfer question for the current point after a substantive answer',
-      ],
-    },
-  ]);
+  const rejectedOpening = planned.material.openingEvidence?.guardrails[0];
+  assert.equal(rejectedOpening?.attempt, 1);
+  assert.ok(rejectedOpening?.reasons.some((reason) => reason.includes('opening.insert_keypoint')));
+  assert.ok(
+    rejectedOpening?.reasons.some((reason) => reason.includes('checkpoint: unexpected field')),
+  );
+  assert.equal(JSON.stringify(rejectedOpening).includes('faux-test-key'), false);
   assert.equal(faux.state.callCount, 2);
 });
 

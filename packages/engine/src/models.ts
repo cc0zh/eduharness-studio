@@ -212,8 +212,8 @@ function createGateway(
     }) {
       const started = performance.now();
       const elapsed = () => Math.round(performance.now() - started);
-      const fail = (code: ModelGenerationError['code']) =>
-        new ModelGenerationError(code, elapsed());
+      const fail = (code: ModelGenerationError['code'], reasons: readonly string[] = []) =>
+        new ModelGenerationError(code, elapsed(), reasons);
       if (
         !Number.isSafeInteger(timeoutMs) ||
         timeoutMs < 1 ||
@@ -310,7 +310,7 @@ function createGateway(
           }),
           deadline,
         ]);
-        if (!result) throw fail('model_invalid_output');
+        if ('invalidReasons' in result) throw fail('model_invalid_output', result.invalidReasons);
         return {
           value: result.value,
           durationMs: elapsed(),

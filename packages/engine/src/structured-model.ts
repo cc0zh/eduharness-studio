@@ -42,6 +42,7 @@ export class ModelGenerationError extends Error {
   constructor(
     public readonly code: FailureCode,
     public readonly durationMs: number,
+    public readonly reasons: readonly string[] = [],
   ) {
     super(code);
     this.name = 'ModelGenerationError';

@@ -238,8 +238,8 @@ export async function startBrowserFixture(
         results = await Promise.allSettled([
           ...nodes.map(stopNode),
           chrome &&
-            bounded(chrome.close(), 'Chromium close').catch(() =>
-              bounded(chrome.kill(), 'Chromium kill'),
+            bounded(chrome.close(), 'Chromium close', 15_000).catch(() =>
+              bounded(chrome.kill(), 'Chromium kill', 15_000),
             ),
         ]);
         if (windows) terminateWindows(stillOwned());
@@ -337,6 +337,7 @@ export async function startBrowserFixture(
   const browser = await chromium.connect(chrome.wsEndpoint(), { timeout: 8_000 });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, locale: 'zh-CN' });
   page.setDefaultTimeout(6_000);
+  page.setDefaultNavigationTimeout(15_000);
   const errors = [];
   page.on('console', (message) => {
     if (message.type() === 'error') errors.push(message.text());

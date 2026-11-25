@@ -23,7 +23,7 @@ function instructionForTurn(
     return `本轮是明确跳过或连续敷衍，diagnosis.status=low_effort。用 keypoint_unverified 标明 ${activeKeypoint} 尚未掌握，不是过关。解释足够继续的线索；如有下一要点，末拍用不带 checkpoint 的 ask。`;
   }
   if (context.input.kind === 'interrupt') {
-    return '本轮是插话，先回答眼下的问题，衔接已上屏内容。用恰好一个不带 checkpoint 的普通 ask 作为数组最后一拍；之前不能有 ask，之后也不能有动作。不记要点过关。';
+    return '本轮是插话，先回答眼下的问题，衔接已上屏内容。若本轮合法满足结课条件，末拍使用护栏允许的结课动作且不出 ask；否则必须以正好 1 个不带 checkpoint 的普通 ask 结尾，且该 ask 是数组最后一拍。之前不能有 ask，之后也不能有动作；不伪造要点过关。';
   }
   if (ask?.checkpoint === 'verify') {
     if (!canAssessMastery) {

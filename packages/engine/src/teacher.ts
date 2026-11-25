@@ -1,3 +1,4 @@
+import { projectKeypointProgress } from './lesson-playback.js';
 import type { PublicDialogueTurn } from './projection.js';
 import type { LessonTraceSpan } from './session-protocol.js';
 import type { StructuredModelTool } from './structured-model.js';
@@ -10,9 +11,9 @@ import {
 } from './teacher-guardrails.js';
 import { teacherPrompt } from './teacher-prompt.js';
 import {
-  TeacherTurnOutputSchema,
+  createTeacherTurnSchema,
+  TeacherOpeningTurnSchema,
   type TeacherTurnTrace,
-  TeacherTurnWithoutMasterySchema,
 } from './teacher-protocol.js';
 import { calcVerifyTeacherTool, runTeacherTool, type TeacherTool } from './teacher-tools.js';
 
@@ -24,6 +25,32 @@ export type { TeacherTool } from './teacher-tools.js';
 
 const maxCorrections = 2;
 const maxToolSteps = 2;
+
+export function teacherTurnSchemaForContext(context: TeacherTurnContext) {
+  if (context.input.kind === 'opening') return TeacherOpeningTurnSchema;
+  const evidence = teacherAnswerEvidence(context);
+  const { keypoints, currentIndex } = projectKeypointProgress(context.keypoints, context.played);
+  const hasActiveKeypoint = keypoints[currentIndex]?.status === 'active';
+  const eligibleAnswer =
+    context.input.kind === 'answer' && Boolean(evidence.ask) && hasActiveKeypoint;
+  const canAssessMastery = hasActiveKeypoint && evidence.canAssessMastery;
+  const canInsertKeypoint =
+    eligibleAnswer &&
+    !evidence.effort &&
+    context.progress.insertedCount < 2 &&
+    keypoints.length < 6;
+  const canMarkUnverified =
+    hasActiveKeypoint &&
+    (evidence.effort === 'skip' ||
+      (evidence.effort === 'low' && context.progress.lowEffortStreak > 0));
+  return createTeacherTurnSchema({
+    insertKeypoint: canInsertKeypoint,
+    keypointComplete: canAssessMastery,
+    keypointUnverified: canMarkUnverified,
+    askCheckpoint: eligibleAnswer && evidence.substantive,
+    speakCheckpoint: canAssessMastery,
+  });
+}
 
 export function createTeacherPlanner(
   gateway: Pick<ModelGateway, 'generate'>,
@@ -44,8 +71,8 @@ export function createTeacherPlanner(
     let toolCallsUsed = 0;
     let toolDurationMs = 0;
     let reasons: string[] = [];
-    const { effort, canAssessMastery } = teacherAnswerEvidence(context);
-    const schema = canAssessMastery ? TeacherTurnOutputSchema : TeacherTurnWithoutMasterySchema;
+    const { effort } = teacherAnswerEvidence(context);
+    const schema = teacherTurnSchemaForContext(context);
     const toolLimit = !effort && tools.length ? maxToolSteps : 0;
 
     for (let attempt = 1; attempt <= maxCorrections + 1; attempt++) {
@@ -123,10 +150,16 @@ export function createTeacherPlanner(
             spans,
           };
         }
-        reasons = [
-          'emit one structured result with diagnosis and 4–8 unnumbered actions of the declared schema',
-        ];
-        if (!canAssessMastery) {
+        reasons = modelError?.reasons.length
+          ? modelError.reasons.map((reason) => `model_invalid_output: ${reason}`)
+          : [
+              'emit one structured result with diagnosis and 4–8 unnumbered actions of the declared schema',
+            ];
+        if (schema === TeacherOpeningTurnSchema) {
+          reasons.push(
+            'opening schema forbids insert_keypoint, keypoint outcomes and all verify checkpoints',
+          );
+        } else if (!teacherAnswerEvidence(context).canAssessMastery) {
           reasons.push(
             'omit keypoint_complete and speak.checkpoint until a verify ask is substantively answered',
           );

@@ -40,6 +40,7 @@ type FailedTeacherPlan = Extract<TeacherPlan, { ok: false }>;
 type TeacherTurnError = {
   error: 'teacher_turn_failed';
   failure?: FailedTeacherPlan['failure'];
+  reasons?: string[];
   trace?: FailedTeacherPlan['trace'];
   spans?: FailedTeacherPlan['spans'];
 };
@@ -91,6 +92,7 @@ export function createSessionOpening(
           return {
             ...teacherFailed,
             failure: failedPlan.failure,
+            reasons: failedPlan.trace.guardrails.flatMap(({ reasons }) => reasons).slice(0, 8),
             trace: failedPlan.trace,
             spans: failedPlan.spans,
           };
@@ -107,7 +109,11 @@ export function createSessionOpening(
             return { error: 'stale_generation' } as const;
           }
           saveTeacherTrace(store, current.id, failedPlan);
-          return { ...teacherFailed, failure: failedPlan.failure };
+          return {
+            ...teacherFailed,
+            failure: failedPlan.failure,
+            reasons: failedPlan.trace.guardrails.flatMap(({ reasons }) => reasons).slice(0, 8),
+          };
         });
       }
       script = { keypoints: plan.keypoints, actions: plan.actions };

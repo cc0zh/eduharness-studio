@@ -367,7 +367,8 @@ test('faux planner caps tools, redacts their spans and supplies concrete correct
     fauxResult(output('mastered', completion)),
     (request) => {
       const prompt = JSON.stringify(request.messages);
-      assert.match(prompt, /omit keypoint_complete and speak\.checkpoint/);
+      assert.match(prompt, /opening schema forbids insert_keypoint/);
+      assert.match(prompt, /invalid structured output/);
       assert.match(prompt, /mock_sum/);
       return fauxResult(output('opening'));
     },

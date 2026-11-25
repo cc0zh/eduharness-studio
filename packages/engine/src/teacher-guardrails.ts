@@ -43,10 +43,7 @@ export function shuffleAskOptions(options: Choice, seed: string): Choice {
 }
 
 const normalize = (text: string) => text.normalize('NFKC').trim().toLowerCase();
-const normalizeReply = (text: string) =>
-  normalize(text)
-    .replace(/[。.！!？?]+$/, '')
-    .trim();
+const normalizeReply = (text: string) => normalize(text).replace(/\s*[。.！!？?]+\s*$/, '');
 const explicitNonAnswer =
   /^(?:(?:我)?(?:不知道|不清楚|不确定|拿不准|不会)(?:,\s*(?:请)?给(?:我)?(?:点|个)?提示)?|(?:请)?给(?:我)?(?:点|个)?提示|(?:i )?(?:do not know|don['’]t know)|(?:i am |i'm )?not sure)$/;
 
@@ -77,11 +74,12 @@ export function teacherAnswerEvidence(context: TeacherTurnContext) {
   const ask = answeredTeacherAsk(context);
   const effort = effortSignal(context.input);
   const text = context.input.kind === 'answer' ? normalizeReply(context.input.text) : '';
+  const substantive = !!text && !effort && !explicitNonAnswer.test(text);
   return {
     ask,
     effort,
-    canAssessMastery:
-      ask?.checkpoint === 'verify' && !effort && !!text && !explicitNonAnswer.test(text),
+    substantive,
+    canAssessMastery: ask?.checkpoint === 'verify' && substantive,
   };
 }
 

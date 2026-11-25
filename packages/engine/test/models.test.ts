@@ -13,7 +13,7 @@ const request = { prompt: 'Count the examples.', schema };
 const key = 'faux-engine-credential';
 const byok = { provider: 'faux', modelId: 'faux-2', apiKey: key };
 
-function result(value: { count: number | string }, tool = 'emit_result') {
+function result(value: Parameters<typeof fauxToolCall>[1]['value'], tool = 'emit_result') {
   return fauxAssistantMessage(fauxToolCall(tool, { value }), { stopReason: 'toolUse' });
 }
 
@@ -75,6 +75,39 @@ test('model gateway stops after two invalid tool outputs and hides their values'
   gateway.setByok(byok);
   setResponses([result({ count: 1 }, 'wrong_tool'), result({ count: key }), result({ count: 3 })]);
   await assert.rejects(gateway.generate(request), failure('model_invalid_output'));
+  assert.equal(state.callCount, 2);
+});
+
+test('model output diagnostics give a safe schema path for retry, failure and never reveal values or secret field names', async () => {
+  const { gateway, state, setResponses } = createFauxModelGateway();
+  gateway.setByok(byok);
+  const outputSecret = 'faux-model-output-secret';
+  const invalid = { count: 'not an integer', OPENROUTER_API_KEY: outputSecret };
+  let retryFeedback = '';
+  setResponses([
+    result(invalid),
+    (request) => {
+      retryFeedback = request.messages
+        .filter(({ role }) => role === 'toolResult')
+        .map(({ content }) => JSON.stringify(content))
+        .join('\n');
+      return result(invalid);
+    },
+  ]);
+  let failureReason: ModelGenerationError | undefined;
+  await assert.rejects(gateway.generate(request), (error: unknown) => {
+    if (!(error instanceof ModelGenerationError)) return false;
+    failureReason = error;
+    return error.code === 'model_invalid_output';
+  });
+
+  assert.match(retryFeedback, /invalid structured output at \$\.count: expected an integer/);
+  assert.match(retryFeedback, /sensitive-field/);
+  assert.ok(failureReason?.reasons.some((reason) => reason.includes('$.count')));
+  assert.equal(JSON.stringify(failureReason?.reasons).includes(outputSecret), false);
+  assert.equal(JSON.stringify(failureReason?.reasons).includes('OPENROUTER_API_KEY'), false);
+  assert.equal(retryFeedback.includes(outputSecret), false);
+  assert.equal(retryFeedback.includes('OPENROUTER_API_KEY'), false);
   assert.equal(state.callCount, 2);
 });
 

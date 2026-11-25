@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { Value } from '@sinclair/typebox/value';
 import { createFauxModelGateway, fauxAssistantMessage, fauxToolCall } from '../src/models.js';
 import {
   createTeacherPlanner,
   type TeacherTurnContext,
   type TeacherTurnOutput,
+  teacherTurnSchemaForContext,
 } from '../src/teacher.js';
 
 const previousAsk = {
@@ -164,9 +166,152 @@ test('faux interruption instruction requires one ordinary terminal ask', async (
     [],
   );
   assert.ok(result.ok, result.ok ? undefined : JSON.stringify(result));
-  assert.match(prompt, /恰好一个不带 checkpoint 的普通 ask/);
+  assert.match(prompt, /若本轮合法满足结课条件/);
+  assert.match(prompt, /否则必须以正好 1 个不带 checkpoint 的普通 ask 结尾/);
   assert.match(prompt, /数组最后一拍/);
   assert.equal(result.actions.filter(({ type }) => type === 'ask').length, 1);
   assert.equal(result.actions.at(-1)?.type, 'ask');
   assert.equal(faux.state.callCount, 1);
+});
+
+test('turn schemas omit opening, ordinary-answer and interruption fields that the guard forbids', () => {
+  const openingContext: TeacherTurnContext = {
+    ...context,
+    state: 'intake',
+    played: [],
+    input: { kind: 'opening' },
+    progress: { ...context.progress, highWater: 0 },
+  };
+  const opening: TeacherTurnOutput = {
+    diagnosis: { status: 'opening', summary: '先认清样本。', strategy: '按人群列格子。' },
+    actions: [
+      { type: 'board', column: 1, card_id: 's1-b1', content: '先分患病者和未患病者。' },
+      { type: 'speak', text: '再观察哪些人会检测阳性。' },
+      { type: 'board', column: 1, card_id: 's1-b2', content: '基数率改变阳性组的人数。' },
+      { type: 'ask', card_id: 's1-q1', mode: 'open', prompt: '阳性组包括哪两类人？' },
+    ],
+  };
+  const openingSchema = teacherTurnSchemaForContext(openingContext);
+  assert.equal(Value.Check(openingSchema, opening), true);
+  assert.equal(
+    Value.Check(openingSchema, {
+      ...opening,
+      insert_keypoint: {
+        id: 'prerequisite',
+        title: '识别阳性',
+        objective: '辨认阳性样本。',
+        depth: 'intuition',
+      },
+    }),
+    false,
+  );
+  assert.equal(
+    Value.Check(openingSchema, {
+      ...opening,
+      actions: opening.actions.map((action) =>
+        action.type === 'ask' ? { ...action, checkpoint: 'verify' as const } : action,
+      ),
+    }),
+    false,
+  );
+  assert.equal(
+    Value.Check(openingSchema, {
+      ...opening,
+      actions: [
+        ...opening.actions.slice(0, 3),
+        { type: 'keypoint_unverified', keypoint_id: 'posterior' },
+      ],
+    }),
+    false,
+  );
+
+  const answerSchema = teacherTurnSchemaForContext(context);
+  const prematureMastery: TeacherTurnOutput = {
+    diagnosis: { status: 'mastered', summary: '已核对。', strategy: '迁移新数字。' },
+    actions: [
+      { type: 'speak', checkpoint: 'verify', text: '复核回答。' },
+      { type: 'keypoint_complete', keypoint_id: 'posterior' },
+      { type: 'board', column: 1, card_id: 's11-b1', content: '换一组数字。' },
+      { type: 'ask', card_id: 's11-q1', mode: 'open', prompt: '再算一次。' },
+    ],
+  };
+  assert.equal(Value.Check(answerSchema, finalAnswer), true);
+  assert.equal(Value.Check(answerSchema, prematureMastery), false);
+  const insertedAnswer: TeacherTurnOutput = {
+    ...finalAnswer,
+    diagnosis: { status: 'missing_prereq', summary: '先补前置概念。', strategy: '先按样本分类。' },
+    insert_keypoint: {
+      id: 'sample-groups',
+      title: '样本分组',
+      objective: '区分检测阳性和真实患病。',
+      depth: 'intuition',
+    },
+  };
+  assert.equal(Value.Check(answerSchema, insertedAnswer), true);
+  const cappedInsertionSchema = teacherTurnSchemaForContext({
+    ...context,
+    progress: { ...context.progress, insertedCount: 2 },
+  });
+  assert.equal(Value.Check(cappedInsertionSchema, insertedAnswer), false);
+  const fullLessonSchema = teacherTurnSchemaForContext({
+    ...context,
+    keypoints: Array.from({ length: 6 }, (_, index) => ({
+      id: `point-${index}`,
+      title: `要点 ${index}`,
+      objective: '核对样本分类。',
+      depth: 'intuition' as const,
+      status: index === 0 ? ('active' as const) : ('pending' as const),
+    })),
+  });
+  assert.equal(Value.Check(fullLessonSchema, insertedAnswer), false);
+
+  const verifiedContext: TeacherTurnContext = {
+    ...context,
+    played: [{ ...previousAsk, checkpoint: 'verify' }],
+  };
+  const verifiedSchema = teacherTurnSchemaForContext(verifiedContext);
+  const completedTurn: TeacherTurnOutput = {
+    diagnosis: { status: 'mastered', summary: '迁移正确。', strategy: '核对新例子。' },
+    actions: [
+      { type: 'board', column: 1, card_id: 's11-b1', content: '替换敏感度后再比较。' },
+      { type: 'speak', checkpoint: 'verify', text: '新的数字仍按同一分母计算。' },
+      { type: 'keypoint_complete', keypoint_id: 'posterior' },
+      { type: 'ask', card_id: 's11-q2', mode: 'open', prompt: '特异度变化会影响哪一项？' },
+    ],
+  };
+  assert.equal(Value.Check(verifiedSchema, completedTurn), true);
+
+  const interruptionContext: TeacherTurnContext = {
+    ...context,
+    input: { kind: 'interrupt', text: '请沿用刚才的例子继续。' },
+  };
+  const interruptionSchema = teacherTurnSchemaForContext(interruptionContext);
+  const interruption = {
+    ...finalAnswer,
+    diagnosis: { status: 'clarifying' as const, summary: '先解释。', strategy: '沿用样本。' },
+    actions: [
+      { type: 'speak' as const, text: '继续从阳性组说明。' },
+      { type: 'board' as const, column: 1, card_id: 's11-b1', content: '阳性组包含两类人。' },
+      { type: 'speak' as const, text: '真阳性和假阳性都要计入。' },
+      { type: 'board' as const, column: 1, card_id: 's11-b2', content: '比较两类人的数量。' },
+      {
+        type: 'ask' as const,
+        card_id: 's11-q1',
+        mode: 'open' as const,
+        prompt: '改变患病率后会怎样？',
+      },
+    ],
+  };
+  assert.equal(Value.Check(interruptionSchema, interruption), true);
+  assert.equal(Value.Check(interruptionSchema, prematureMastery), false);
+  assert.equal(Value.Check(interruptionSchema, insertedAnswer), false);
+  assert.equal(
+    Value.Check(interruptionSchema, {
+      ...interruption,
+      actions: interruption.actions.map((action) =>
+        action.type === 'ask' ? { ...action, checkpoint: 'verify' as const } : action,
+      ),
+    }),
+    false,
+  );
 });

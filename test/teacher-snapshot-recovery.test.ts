@@ -164,7 +164,7 @@ test('a rejected first opening returns guardrail diagnostics without inserting a
   assert.equal(fixture.database.db.prepare('SELECT COUNT(*) AS n FROM sessions').get()?.n, 0);
 });
 
-test('opening retries preserve separate board and ask IDs and omit premature prerequisite insertion', async (t) => {
+test('opening schema retries a forbidden prerequisite insertion without persisting it', async (t) => {
   const fixture = makeFixture(t);
   const invalid = {
     ...opening,
@@ -174,7 +174,6 @@ test('opening retries preserve separate board and ask IDs and omit premature pre
       objective: '理解如何分组',
       depth: 'intuition',
     },
-    actions: [...opening.actions.slice(0, -1), { ...opening.actions.at(-1), card_id: 'open' }],
   };
   fixture.faux.setResponses([fixture.structured(invalid), fixture.structured(opening)]);
   const live = await startAtAsk(fixture.store, () => fixture.store.start(fixture.options(false)));
@@ -193,8 +192,8 @@ test('opening retries preserve separate board and ask IDs and omit premature pre
     {
       attempt: 1,
       reasons: [
-        'actions[3]: ask.card_id must be new and distinct from all board and ask cards, including cards from a truncated beat',
-        'omit insert_keypoint on the opening turn',
+        'model_invalid_output: invalid structured output at $.insert_keypoint: unexpected field',
+        'opening schema forbids insert_keypoint, keypoint outcomes and all verify checkpoints',
       ],
     },
   ]);

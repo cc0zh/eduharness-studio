@@ -20,7 +20,7 @@ import {
 import {
   LessonBasisSchema,
   TeacherDiagnosisSchema,
-  TeacherTurnWithoutMasterySchema,
+  TeacherOpeningTurnSchema,
 } from './teacher-protocol.js';
 
 const strict = { additionalProperties: false };
@@ -66,7 +66,7 @@ const LessonDraftSchema = Type.Object(
   {
     keypoints: Type.Array(KeypointDraftSchema, { minItems: 2, maxItems: 6 }),
     basis: Type.Optional(LessonBasisSchema),
-    opening: TeacherTurnWithoutMasterySchema,
+    opening: TeacherOpeningTurnSchema,
   },
   strict,
 );
@@ -131,6 +131,17 @@ type CourseLessonInput = {
   previousKeypoints: readonly Keypoint[];
 };
 
+export class CourseLessonPlanningError extends Error {
+  readonly code = 'course_lesson_invalid_output' as const;
+  readonly reasons: readonly string[];
+
+  constructor(reasons: readonly string[]) {
+    super('course_lesson_invalid_output');
+    this.name = 'CourseLessonPlanningError';
+    this.reasons = [...new Set(reasons)].slice(0, 8).map((reason) => reason.slice(0, 220));
+  }
+}
+
 export function createCourseLessonPlanner(
   gateway: Pick<ModelGateway, 'generate'>,
   graphOptions = modelGraphOptions(gateway),
@@ -150,7 +161,7 @@ export function createCourseLessonPlanner(
           prompt: [
             'Prepare one concise, Chinese-language whiteboard lesson with no external search.',
             'Write 2–6 progressive keypoints and an optional factual LessonBasis.',
-            'Opening contract (hard): diagnosis.status=opening; omit insert_keypoint, keypoint_complete and keypoint_unverified. Use 4–8 actions with exactly one ordinary ask as the final action; omit its checkpoint and do not add another ask. Never use ask(checkpoint=verify) before the student has answered. Do not include step_id.',
+            'Opening contract (hard): diagnosis.status=opening; omit insert_keypoint, keypoint_complete and keypoint_unverified. Use 4–8 actions with exactly one ordinary ask; it must be the final beat and must omit checkpoint. Do not add another ask. Never use ask(checkpoint=verify) before the student has answered. Do not include step_id.',
             'Keep all board and graph content complete but ≤180 characters; title ≤48; formula ≤140; speak ≤140; ask prompt ≤140; choice labels ≤56. Give all board/graph/ask cards unique IDs. Highlight only a prior board/graph card, quoting text in its content.',
             `Character budgets: ${JSON.stringify(teacherTextLimits)}`,
             teacherGraphInstruction,
@@ -174,7 +185,9 @@ export function createCourseLessonPlanner(
       } catch (error) {
         if (!(error instanceof ModelGenerationError) || error.code !== 'model_invalid_output')
           throw error;
-        const reasons = ['emit a complete LessonDraft matching the declared schema'];
+        const reasons = error.reasons.length
+          ? error.reasons.map((reason) => `model_invalid_output: ${reason}`)
+          : ['emit a complete LessonDraft matching the declared schema'];
         guardrails.push({ attempt, reasons });
         corrections.splice(0, corrections.length, ...reasons);
         continue;
@@ -214,6 +227,6 @@ export function createCourseLessonPlanner(
       };
       return { material, durationMs };
     }
-    throw new Error('course_lesson_invalid_output');
+    throw new CourseLessonPlanningError(guardrails.flatMap(({ reasons }) => reasons));
   };
 }

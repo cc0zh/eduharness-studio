@@ -10,10 +10,11 @@ import {
   startIntake,
 } from '@eduharness-studio/engine';
 import {
+  CourseLessonPlanningError,
   createCourseBlueprintPlanner,
   createCourseLessonPlanner,
 } from '@eduharness-studio/engine/course';
-import type { ModelGateway } from '@eduharness-studio/engine/models';
+import { type ModelGateway, ModelGenerationError } from '@eduharness-studio/engine/models';
 import { Type } from '@sinclair/typebox';
 import { Hono } from 'hono';
 import { type CourseStore, isDemoCourse, isRetiredDemo } from './course-store.js';
@@ -21,6 +22,19 @@ import { checked, RouteIdSchema } from './request-validation.js';
 
 const CourseParamsSchema = Type.Object({ courseId: RouteIdSchema });
 const UnlockParamsSchema = Type.Object({ courseId: RouteIdSchema, lessonId: RouteIdSchema });
+
+function generationFailure(error: unknown) {
+  if (error instanceof ModelGenerationError) {
+    return {
+      failure: error.code,
+      ...(error.reasons.length ? { reasons: error.reasons } : {}),
+    };
+  }
+  if (error instanceof CourseLessonPlanningError) {
+    return { failure: error.code, reasons: error.reasons };
+  }
+  return { failure: 'generation_failed' };
+}
 
 export function createCourseRoutes(courses: CourseStore, gateway: ModelGateway) {
   const routes = new Hono();
@@ -103,8 +117,8 @@ export function createCourseRoutes(courses: CourseStore, gateway: ModelGateway) 
     if ((await gateway.getStatus()).mode === 'live') {
       try {
         blueprint = (await planBlueprint(id, answers)).blueprint;
-      } catch {
-        return c.json({ error: 'course_generation_failed' }, 502);
+      } catch (error) {
+        return c.json({ error: 'course_generation_failed', ...generationFailure(error) }, 502);
       }
     }
     courses.add(blueprint);
@@ -123,8 +137,8 @@ export function createCourseRoutes(courses: CourseStore, gateway: ModelGateway) 
           result,
           result.error === 'course_not_found' || result.error === 'lesson_not_found' ? 404 : 409,
         );
-      } catch {
-        return c.json({ error: 'lesson_generation_failed' }, 502);
+      } catch (error) {
+        return c.json({ error: 'lesson_generation_failed', ...generationFailure(error) }, 502);
       }
     },
   );

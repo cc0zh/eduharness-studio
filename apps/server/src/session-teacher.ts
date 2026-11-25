@@ -89,7 +89,10 @@ export function runSessionTeacher(store: Store, cursor: SessionCursor, planTurn:
       // A different connection or a new playback owner may have changed the snapshot during planning.
       if (!matches(expected, current)) return { error: 'stale_generation' } as const;
       saveTeacherTrace(store, current.id, plan);
-      if (!plan.ok) return { ...teacherFailed, failure: plan.failure };
+      if (!plan.ok) {
+        const reasons = plan.trace.guardrails.flatMap(({ reasons }) => reasons).slice(0, 8);
+        return { ...teacherFailed, failure: plan.failure, reasons };
+      }
       current.queue.script = {
         keypoints: plan.keypoints,
         actions: [...context.played, ...plan.actions],
