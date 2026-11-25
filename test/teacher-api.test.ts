@@ -13,69 +13,30 @@ import { createTeacherPlanner } from '@eduharness-studio/engine/teacher';
 import { Type } from '@sinclair/typebox';
 import { openStudioDatabase } from '../apps/server/src/db.js';
 import { createSessionStore } from '../apps/server/src/session-store.js';
+import { afterSkip, opening, scaffold } from './teacher-test-support.js';
 
-function output(status: string, actions: object[], insert?: object) {
-  return {
-    diagnosis: { status, summary: '检查配对是否完整。', strategy: '换数字再试一次。' },
-    ...(insert ? { insert_keypoint: insert } : {}),
-    actions,
-  };
-}
-
-function opening() {
-  return output('opening', [
-    { type: 'board', column: 1, card_id: 'intro', content: '把五块积木尝试两两摆放。' },
-    { type: 'speak', text: '先试着每两个摆成一组。' },
-    { type: 'highlight', card_id: 'intro', target_text: '两两', style: 'circle' },
-    { type: 'ask', card_id: 'intro-ask', mode: 'open', prompt: '五块积木两两配对，会剩几块？' },
-  ]);
-}
-
-function scaffold() {
-  return output('low_effort', [
-    { type: 'board', column: 1, card_id: 'scaffold', content: '每组先放两块积木。' },
-    { type: 'speak', text: '试着想象它们排成一行。' },
-    { type: 'highlight', card_id: 'scaffold', target_text: '两块', style: 'highlight' },
+const inserted = {
+  diagnosis: {
+    status: 'missing_prereq',
+    summary: '分组概念尚未建立。',
+    strategy: '先认识一对物件。',
+  },
+  insert_keypoint: {
+    id: 'pre-groups',
+    title: '两两配对',
+    objective: '把同类物件每两个分成一组',
+    depth: 'intuition',
+  },
+  panels: [
     {
-      type: 'ask',
-      card_id: 'scaffold-ask',
-      mode: 'choice',
-      prompt: '五块分组后怎样？',
-      options: [
-        { id: 'left-one', label: '四块成两对，还剩一块' },
-        { id: 'even', label: '全部恰好成对' },
-      ],
+      title: '先认识配对',
+      content: '两个相同的物件组成一对。',
+      highlight: '一对',
+      voiceover: '先拿出两块积木，看看它们怎样形成一对。',
     },
-  ]);
-}
-
-function inserted() {
-  return output(
-    'missing_prereq',
-    [
-      { type: 'board', column: 1, card_id: 'pair-board', content: '两个相同的物件组成一对。' },
-      { type: 'speak', text: '先拿出两块积木，看看它们怎样形成一对。' },
-      { type: 'highlight', card_id: 'pair-board', target_text: '一对', style: 'circle' },
-      { type: 'ask', card_id: 'pair-ask', mode: 'open', prompt: '四块积木可以分成几对？' },
-    ],
-    {
-      id: 'pre-groups',
-      title: '两两配对',
-      objective: '把同类物件每两个分成一组',
-      depth: 'intuition',
-    },
-  );
-}
-
-function unverified() {
-  return output('low_effort', [
-    { type: 'board', column: 1, card_id: 'review-one', content: '先回忆每两块成一对。' },
-    { type: 'speak', text: '我们先带着这个线索继续。' },
-    { type: 'keypoint_unverified', keypoint_id: 'pre-groups' },
-    { type: 'board', column: 2, card_id: 'next-board', content: '现在看六块积木。' },
-    { type: 'ask', card_id: 'next-ask', mode: 'open', prompt: '六块可以分成几对？' },
-  ]);
-}
+  ],
+  next_ask: { prompt: '四块积木可以分成几对？' },
+};
 
 function makeFixture(t: TestContext) {
   const directory = mkdtempSync(join(tmpdir(), 'eduharness-teacher-'));
@@ -142,14 +103,14 @@ function reachAsk(store: ReturnType<typeof createSessionStore>, id: string, gene
 
 test('SQLite teacher turns insert prerequisites atomically, downgrade low effort, and restore unverified progress', async (t) => {
   const fixture = makeFixture(t);
-  fixture.faux.setResponses([fixture.structured(opening())]);
+  fixture.faux.setResponses([fixture.structured(opening)]);
   const started = await fixture.start();
   assert.ok('snapshot' in started);
   const id = started.snapshot.session_id;
   const generation = started.snapshot.generation;
   const first = reachAsk(fixture.store, id, generation);
 
-  fixture.faux.setResponses([fixture.structured(inserted())]);
+  fixture.faux.setResponses([fixture.structured(inserted)]);
   const insertion = await fixture.store.answer(id, {
     generation,
     ask_step_id: first.ask.step_id,
@@ -173,7 +134,7 @@ test('SQLite teacher turns insert prerequisites atomically, downgrade low effort
   );
   const second = reachAsk(fixture.store, id, generation);
 
-  fixture.faux.setResponses([fixture.structured(scaffold())]);
+  fixture.faux.setResponses([fixture.structured(scaffold)]);
   const downgraded = await fixture.store.answer(id, {
     generation,
     ask_step_id: second.ask.step_id,
@@ -185,7 +146,7 @@ test('SQLite teacher turns insert prerequisites atomically, downgrade low effort
   if (third.ask.mode !== 'choice') throw new Error('Expected the first low-effort choice ask');
   assert.equal(third.ask.options?.length, 2);
 
-  fixture.faux.setResponses([fixture.structured(unverified())]);
+  fixture.faux.setResponses([fixture.structured(afterSkip)]);
   const skipped = await fixture.store.answer(id, {
     generation,
     ask_step_id: third.ask.step_id,
@@ -238,7 +199,7 @@ test('SQLite teacher turns insert prerequisites atomically, downgrade low effort
 
 test('a stale faux result cannot overwrite a session claimed while the model was pending', async (t) => {
   const fixture = makeFixture(t);
-  fixture.faux.setResponses([fixture.structured(opening())]);
+  fixture.faux.setResponses([fixture.structured(opening)]);
   const started = await fixture.start();
   assert.ok('snapshot' in started);
   const { session_id: id, generation } = started.snapshot;
@@ -255,7 +216,7 @@ test('a stale faux result cannot overwrite a session claimed while the model was
     async () => {
       begin?.();
       await held;
-      return fixture.structured(scaffold());
+      return fixture.structured(scaffold);
     },
   ]);
   const answer = fixture.store.answer(id, { generation, ask_step_id: ask.step_id, text: '继续' });
@@ -298,7 +259,7 @@ test('tool trace spans stay redacted at the SQLite boundary', async (t) => {
     fauxAssistantMessage(fauxToolCall('mock_sum', { amount: 2, api_key: 'input-secret' }), {
       stopReason: 'toolUse',
     }),
-    fixture.structured(opening()),
+    fixture.structured(opening),
   ]);
   const started = await sessions.start({
     courseId: fixture.course.id,
@@ -321,7 +282,7 @@ test('tool trace spans stay redacted at the SQLite boundary', async (t) => {
 
 test('exhausted replans keep the confirmed classroom and record the rejection', async (t) => {
   const { start, store, faux, structured } = makeFixture(t);
-  faux.setResponses([structured(opening())]);
+  faux.setResponses([structured(opening)]);
   const started = await start();
   assert.ok('snapshot' in started);
   const { session_id: id, generation } = started.snapshot;
@@ -329,10 +290,10 @@ test('exhausted replans keep the confirmed classroom and record the rejection', 
   const before = store.inspect(id)?.snapshot;
   assert.ok(before);
   const wrong = structured({
-    ...scaffold(),
-    diagnosis: { status: 'mastered', summary: '假的过关。', strategy: '跳过检验。' },
+    ...scaffold,
+    resolution: { text: '还没有展示迁移题。', conclusion: '不应提前过关。' },
   });
-  faux.setResponses([wrong, wrong, wrong, structured(scaffold())]);
+  faux.setResponses([wrong, wrong, wrong, structured(scaffold)]);
   const answer = { generation, ask_step_id: ask.step_id, text: '直接讲' };
   const failed = await store.answer(id, answer);
   assert.ok('error' in failed && failed.error === 'teacher_turn_failed');

@@ -5,7 +5,7 @@ import {
   projectKeypointProgress,
   readLessonBeat,
   type SessionSnapshot,
-  stateAfterBeat,
+  stateAfterScriptBeat,
   type TeachingState,
   type TeachingTransition,
 } from '@eduharness-studio/engine';
@@ -91,12 +91,7 @@ export function sessionCursor(store: ReturnType<typeof sessionDatabase>) {
     ) {
       return { error: 'unexpected_step' };
     }
-    const state = stateAfterBeat(
-      session.state,
-      next,
-      queue.askStep !== null,
-      next === queue.script.actions.at(-1),
-    );
+    const state = stateAfterScriptBeat(session.state, next, queue.askStep !== null, queue.script);
     if (!state) return { error: 'unexpected_step' };
 
     session.lastPlayed = stepId;

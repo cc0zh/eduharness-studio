@@ -49,20 +49,24 @@ const lesson = {
   },
   opening: {
     diagnosis: { status: 'opening', summary: '先辨认观测。', strategy: '从一个样本开始。' },
-    actions: [
-      { type: 'board', column: 1, card_id: 'observation', content: '看一次测量，先不急着下结论。' },
-      { type: 'speak', text: '同一个量反复测量，读数会完全相同吗？' },
-      { type: 'highlight', card_id: 'observation', target_text: '一次测量', style: 'circle' },
-      { type: 'ask', card_id: 'observation-ask', mode: 'open', prompt: '多测几次会看到什么？' },
+    panels: [
+      {
+        title: '一次测量',
+        content: '看一次测量，先不急着下结论。',
+        highlight: '一次测量',
+        voiceover: '同一个量反复测量，读数会完全相同吗？',
+      },
     ],
+    next_ask: { prompt: '多测几次会看到什么？' },
   },
 };
 
-function fixture(t: TestContext) {
+function fixture(t: TestContext, online = true) {
   const directory = mkdtempSync(join(tmpdir(), 'eduharness-course-'));
   const database = openStudioDatabase(join(directory, 'studio.sqlite'));
   const faux = createFauxModelGateway();
-  assert.ok(faux.gateway.setByok({ provider: 'faux', modelId: 'faux-1', apiKey: 'faux-only' }));
+  if (online)
+    assert.ok(faux.gateway.setByok({ provider: 'faux', modelId: 'faux-1', apiKey: 'faux-only' }));
   const app = createServerApp({ database, modelGateway: faux.gateway });
   t.after(() => {
     database.close();
@@ -167,7 +171,15 @@ test('live course generation stores dynamic lessons and coalesces a concurrent l
   const material = JSON.parse(stored.material_json);
   assert.deepEqual(material.basis, lesson.basis);
   assert.equal(material.script.keypoints.length, 2);
-  assert.equal(material.script.actions.at(-1).type, 'ask');
+  const [board, mark, caption, ask] = material.script.actions;
+  assert.deepEqual(
+    material.script.actions.map(({ type }) => type),
+    ['board', 'highlight', 'speak', 'ask'],
+  );
+  assert.equal(mark.card_id, board.card_id);
+  assert.equal(mark.target_text, lesson.opening.panels[0].highlight);
+  assert.equal(caption.text, lesson.opening.panels[0].voiceover);
+  assert.equal(ask.prompt, lesson.opening.next_ask.prompt);
 
   const started = await app.request(`/api/courses/${blueprint.id}/lessons/${first.id}/sessions`, {
     method: 'POST',
@@ -233,14 +245,7 @@ test('an unlocked live lesson reopens as a complete deterministic lesson after c
 });
 
 test('offline course unlock uses the deterministic lesson script without a model call', async (t) => {
-  const directory = mkdtempSync(join(tmpdir(), 'eduharness-course-offline-'));
-  const database = openStudioDatabase(join(directory, 'studio.sqlite'));
-  const faux = createFauxModelGateway();
-  const app = createServerApp({ database, modelGateway: faux.gateway });
-  t.after(() => {
-    database.close();
-    rmSync(directory, { recursive: true, force: true, maxRetries: 8, retryDelay: 120 });
-  });
+  const { app, database, faux } = fixture(t, false);
   const created = await app.request('/api/intake/generate', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -294,7 +299,8 @@ test('duplicate model keypoint IDs cannot unlock or persist a broken lesson', as
     ...lesson,
     keypoints: [lesson.keypoints[0], { ...lesson.keypoints[1], id: lesson.keypoints[0].id }],
   };
-  faux.setResponses([structured(plan), structured(invalid), structured(invalid)]);
+  const rejected = structured(invalid);
+  faux.setResponses([structured(plan), rejected, rejected, rejected]);
 
   const generated = await app.request('/api/intake/generate', {
     method: 'POST',
@@ -313,6 +319,8 @@ test('duplicate model keypoint IDs cannot unlock or persist a broken lesson', as
   });
 
   assert.equal(response.status, 502);
+  assert.equal((await response.json()).failure, 'course_lesson_invalid_output');
+  assert.equal(faux.state.callCount, 4);
   assert.equal(
     database.db.prepare('SELECT COUNT(*) AS count FROM courses WHERE id = ?').get(blueprint.id)
       ?.count,
@@ -331,33 +339,8 @@ test('duplicate model keypoint IDs cannot unlock or persist a broken lesson', as
 test('course store rejects invalid material before writing it or marking the lesson ready', (t) => {
   const { database } = fixture(t);
   const store = createCourseStore(database);
-  const blueprint: CourseBlueprint = {
-    id: 'course-invalid-material',
-    title: '基数率',
-    topic: '基数率',
-    units: [
-      {
-        id: 'unit-1',
-        title: '条件概率',
-        lessons: [
-          {
-            id: 'lesson-ready',
-            title: '观测',
-            summary: '观测样本。',
-            depth: 'intuition',
-            status: 'ready',
-          },
-          {
-            id: 'lesson-locked',
-            title: '阳性预测值',
-            summary: '分析阳性样本。',
-            depth: 'application',
-            status: 'locked',
-          },
-        ],
-      },
-    ],
-  };
+  const blueprint: CourseBlueprint = { ...demoCourses[0], id: 'course-invalid-material' };
+  const lockedId = blueprint.units[0].lessons[1].id;
   store.add(blueprint);
   const invalid = {
     script: offlineLesson(blueprint, blueprint.units[0].lessons[0]),
@@ -368,11 +351,8 @@ test('course store rejects invalid material before writing it or marking the les
     },
   } as unknown as LessonMaterial;
 
-  assert.throws(
-    () => store.unlock(blueprint.id, 'lesson-locked', invalid),
-    /invalid_lesson_material/,
-  );
+  assert.throws(() => store.unlock(blueprint.id, lockedId, invalid), /invalid_lesson_material/);
   const refreshed = store.get(blueprint.id);
   assert.equal(refreshed?.units[0].lessons[1].status, 'locked');
-  assert.equal(store.material(blueprint.id, 'lesson-locked'), undefined);
+  assert.equal(store.material(blueprint.id, lockedId), undefined);
 });

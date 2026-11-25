@@ -5,7 +5,7 @@ import {
   readLessonBeat,
   type SessionSnapshot,
   type SessionTrace,
-  stateAfterBeat,
+  stateAfterScriptBeat,
   validateLessonScript,
 } from '@eduharness-studio/engine';
 import type { TeacherPlanner } from '@eduharness-studio/engine/teacher';
@@ -116,10 +116,7 @@ export function createSessionStore(
             action = nextAction(active.script);
           }
         }
-        if (
-          !action ||
-          !stateAfterBeat(position.state, action, false, action === active.script.actions.at(-1))
-        ) {
+        if (!action || !stateAfterScriptBeat(position.state, action, false, active.script)) {
           throw new Error('Lesson action blocked by teaching state');
         }
         if (action.step_id === active.sentStep) return { kind: 'waiting' };

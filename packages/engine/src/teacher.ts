@@ -1,58 +1,37 @@
-import { projectKeypointProgress } from './lesson-playback.js';
 import type { PublicDialogueTurn } from './projection.js';
 import type { LessonTraceSpan } from './session-protocol.js';
-import type { StructuredModelTool } from './structured-model.js';
-import { type ModelGateway, ModelGenerationError } from './structured-model.js';
+import {
+  type ModelGateway,
+  ModelGenerationError,
+  type StructuredModelTool,
+} from './structured-model.js';
+import { compileTeacherTurn } from './teacher-compiler.js';
+import type { TeacherTurnContext } from './teacher-context.js';
 import { materializeTeacherGraph, modelGraphOptions, teacherGraphSpan } from './teacher-graph.js';
-import {
-  guardTeacherTurn,
-  type TeacherTurnContext,
-  teacherAnswerEvidence,
-} from './teacher-guardrails.js';
-import { normalizeTurnLayout } from './teacher-layout.js';
+import { normalizeTeacherTurn } from './teacher-normalize.js';
+import { teacherTurnPolicy } from './teacher-policy.js';
 import { teacherPrompt } from './teacher-prompt.js';
-import {
-  createTeacherTurnSchema,
-  TeacherOpeningTurnSchema,
-  type TeacherTurnTrace,
-} from './teacher-protocol.js';
+import type { TeacherTurnTrace } from './teacher-protocol.js';
 import { calcVerifyTeacherTool, runTeacherTool, type TeacherTool } from './teacher-tools.js';
 
+export { compileTeacherTurn } from './teacher-compiler.js';
+export {
+  effortSignal,
+  type TeacherInput,
+  type TeacherProgress,
+  type TeacherTurnContext,
+} from './teacher-context.js';
 export { teacherGraphSpan } from './teacher-graph.js';
-export type { TeacherInput, TeacherProgress, TeacherTurnContext } from './teacher-guardrails.js';
-export { effortSignal } from './teacher-guardrails.js';
-export { type TeacherTurnOutput, TeacherTurnOutputSchema } from './teacher-protocol.js';
+export { teacherTurnPolicy } from './teacher-policy.js';
+export {
+  type TeacherTurnOutput,
+  TeacherTurnOutputSchema,
+  type TurnPolicy,
+} from './teacher-semantics.js';
 export type { TeacherTool } from './teacher-tools.js';
 
 const maxCorrections = 2;
 const maxToolSteps = 2;
-
-export function teacherTurnSchemaForContext(context: TeacherTurnContext) {
-  if (context.input.kind === 'opening') return TeacherOpeningTurnSchema;
-  const evidence = teacherAnswerEvidence(context);
-  const { keypoints, currentIndex } = projectKeypointProgress(context.keypoints, context.played);
-  const hasActiveKeypoint = keypoints[currentIndex]?.status === 'active';
-  const eligibleAnswer =
-    context.input.kind === 'answer' && Boolean(evidence.ask) && hasActiveKeypoint;
-  const canAssessMastery = hasActiveKeypoint && evidence.canAssessMastery;
-  const canInsertKeypoint =
-    eligibleAnswer &&
-    !evidence.effort &&
-    context.progress.insertedCount < 2 &&
-    keypoints.length < 6;
-  const canMarkUnverified =
-    hasActiveKeypoint &&
-    (evidence.effort === 'skip' ||
-      (evidence.effort === 'low' && context.progress.lowEffortStreak > 0));
-  return createTeacherTurnSchema({
-    opening: false,
-    insertKeypoint: canInsertKeypoint,
-    keypointComplete: canAssessMastery,
-    keypointUnverified: canMarkUnverified,
-    askCheckpoint: eligibleAnswer && evidence.substantive && evidence.ask?.checkpoint !== 'verify',
-    speakCheckpoint: canAssessMastery,
-  });
-}
 
 export function createTeacherPlanner(
   gateway: Pick<ModelGateway, 'generate'>,
@@ -69,23 +48,34 @@ export function createTeacherPlanner(
       guardrails,
       outcome: 'rejected',
     };
+    const policy = teacherTurnPolicy(context);
     const observations: { tool: string; result: string }[] = [];
     let toolCallsUsed = 0;
     let toolDurationMs = 0;
-    let reasons: string[] = [];
-    const { effort } = teacherAnswerEvidence(context);
-    const schema = teacherTurnSchemaForContext(context);
-    const toolLimit = !effort && tools.length ? maxToolSteps : 0;
+    const modelSpan = (durationMs: number) =>
+      spans.push({
+        ...anchor,
+        kind: 'model',
+        name: 'teacher_turn',
+        durationMs: Math.max(0, durationMs - toolDurationMs),
+      });
 
     for (let attempt = 1; attempt <= maxCorrections + 1; attempt++) {
-      const toolBudget = Math.max(0, toolLimit - toolCallsUsed);
-      const prompt = teacherPrompt(context, dialogue, tools, reasons, observations, toolBudget);
+      const toolBudget =
+        attempt === 1 &&
+        tools.length &&
+        policy.phase !== 'first-low-effort' &&
+        policy.phase !== 'unverified'
+          ? maxToolSteps
+          : 0;
       const modelTools: StructuredModelTool[] = toolBudget
         ? tools.map((tool) => ({
             name: tool.name,
             description: tool.description,
             parameters: tool.parameters,
             run: async (input) => {
+              if (toolCallsUsed >= maxToolSteps)
+                return JSON.stringify({ error: 'Tool-call limit exhausted.' });
               toolCallsUsed++;
               const result = await runTeacherTool(tool, input, anchor);
               spans.push(result.span);
@@ -97,85 +87,61 @@ export function createTeacherPlanner(
             },
           }))
         : [];
-      const toolsBeforeAttempt = toolDurationMs;
+      const prompt = teacherPrompt(
+        context,
+        policy,
+        dialogue,
+        tools,
+        attempt > 1,
+        observations,
+        toolBudget,
+      );
+      toolDurationMs = 0;
+      let scene: unknown;
       try {
         const { value, durationMs } = await gateway.generate({
-          schema,
+          schema: policy.schema,
           prompt,
+          normalizeOutput: normalizeTeacherTurn,
           maxTokens: 4096,
           attempts: 1,
           tools: modelTools,
           maxToolCalls: toolBudget,
         });
-        spans.push({
-          ...anchor,
-          kind: 'model',
-          name: 'teacher_turn',
-          durationMs: Math.max(0, durationMs - (toolDurationMs - toolsBeforeAttempt)),
-        });
-        const checked = guardTeacherTurn(context, value);
-        if (checked.ok) {
-          const { actions, graph } = await materializeTeacherGraph(
-            checked,
-            graphOptions,
-            context.input.kind === 'opening',
-          );
-          if (graph) spans.push(teacherGraphSpan(anchor.generation, graph));
-          const laidOut = normalizeTurnLayout(
-            context,
-            checked.initialState,
-            checked.keypoints,
-            actions,
-            checked.trace,
-            checked.progress,
-          );
-          return {
-            ok: true as const,
-            actions: laidOut.actions,
-            keypoints: checked.keypoints,
-            initialState: checked.initialState,
-            progress: laidOut.progress,
-            trace: { ...trace, ...laidOut.trace, outcome: 'accepted' as const },
-            spans,
-          };
-        }
-        reasons = checked.reasons;
+        modelSpan(durationMs);
+        scene = value;
       } catch (error) {
         const modelError = error instanceof ModelGenerationError ? error : undefined;
-        spans.push({
-          ...anchor,
-          kind: 'model',
-          name: 'teacher_turn',
-          durationMs: Math.max(
-            0,
-            (modelError?.durationMs ?? 0) - (toolDurationMs - toolsBeforeAttempt),
-          ),
-        });
-        if (modelError?.code !== 'model_invalid_output') {
-          guardrails.push({ attempt, reasons: [modelError?.code ?? 'model_request_failed'] });
-          return {
-            ok: false as const,
-            failure: modelError?.code ?? 'model_request_failed',
-            trace,
-            spans,
-          };
-        }
-        reasons = modelError?.reasons.length
+        const failure = modelError?.code ?? 'model_request_failed';
+        modelSpan(modelError?.durationMs ?? 0);
+        const reasons = modelError?.reasons.length
           ? modelError.reasons.map((reason) => `model_invalid_output: ${reason}`)
-          : [
-              'emit one structured result with diagnosis and 4–8 unnumbered actions of the declared schema',
-            ];
-        if (schema === TeacherOpeningTurnSchema) {
-          reasons.push(
-            'opening schema forbids insert_keypoint, keypoint outcomes and all verify checkpoints',
-          );
-        } else if (!teacherAnswerEvidence(context).canAssessMastery) {
-          reasons.push(
-            'omit keypoint_complete and speak.checkpoint until a verify ask is substantively answered',
-          );
-        }
+          : [failure];
+        guardrails.push({ attempt, reasons });
+        if (failure !== 'model_invalid_output')
+          return { ok: false as const, failure, trace, spans };
+        continue;
       }
-      guardrails.push({ attempt, reasons });
+      const checked = compileTeacherTurn(context, scene);
+      if (!checked.ok) {
+        guardrails.push({ attempt, reasons: checked.reasons });
+        continue;
+      }
+      const { actions, graph } = await materializeTeacherGraph(
+        checked,
+        graphOptions,
+        policy.phase === 'opening',
+      );
+      if (graph) spans.push(teacherGraphSpan(anchor.generation, graph));
+      return {
+        ok: true as const,
+        actions,
+        keypoints: checked.keypoints,
+        initialState: checked.initialState,
+        progress: checked.progress,
+        trace: { ...trace, ...checked.trace, outcome: 'accepted' as const },
+        spans,
+      };
     }
     return { ok: false as const, failure: 'teacher_invalid_output' as const, trace, spans };
   };

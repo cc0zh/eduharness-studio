@@ -111,7 +111,9 @@ test('M2-4 Chromium loopback: a malicious SVG is rejected and text boardwork rem
   timeout: 60_000,
 }, async (t) => {
   const { page, span } = await finish(t, 'malicious');
-  const card = page.locator('[data-board-card="observed-sample"]');
+  const card = page
+    .locator('[data-board-card]')
+    .filter({ has: page.getByRole('heading', { name: '样本与阈值', exact: true }) });
   await card.waitFor();
   assert.equal(await card.getAttribute('data-card-kind'), 'board');
   assert.match(await card.textContent(), /已观测的样本/);
@@ -123,11 +125,45 @@ test('M2-4 Chromium loopback: a malicious SVG is rejected and text boardwork rem
   await drawer.getByText(/"reason":"unsafe_svg"/).waitFor();
 });
 
+test('M2.5 Chromium loopback: a marked panel keeps its board and paints the exact highlight', {
+  timeout: 60_000,
+}, async (t) => {
+  const { page, url, sessionId, errors, external, mock } = await configureAndUnlock(t, 'marked');
+  const card = page
+    .locator('[data-board-card]')
+    .filter({ has: page.getByRole('heading', { name: '样本与阈值' }) });
+  const step = page.getByRole('button', { name: '单拍前进 Step', exact: true });
+  if (!(await card.isVisible())) await step.click();
+  await card.waitFor();
+  const highlight = card.locator('[data-highlight="highlight"]');
+  if (!(await highlight.isVisible())) await step.click();
+  await highlight.waitFor({ state: 'visible' });
+  assert.equal(await highlight.textContent(), '已观测的样本');
+  assert.equal(await card.getAttribute('data-card-kind'), 'board');
+  assert.equal(await card.locator('[data-graph]').count(), 0);
+  assert.equal(
+    mock.calls.some(({ body }) =>
+      body?.messages.some(({ content }) => String(content).includes('绘图任务')),
+    ),
+    false,
+  );
+  const xray = await page.request.get(`${url}/api/sessions/${sessionId}/xray`);
+  assert.equal(xray.status(), 200);
+  assert.equal(
+    (await xray.json()).spans.some(({ name }) => name === 'graph_generator'),
+    false,
+  );
+  assert.equal(external.length, 0);
+  assert.deepEqual(errors, []);
+});
+
 test('M2-4 Chromium loopback: an SVG timeout degrades to text without blocking playback', {
   timeout: 60_000,
 }, async (t) => {
   const { page, span, errors } = await finish(t, 'timeout');
-  const card = page.locator('[data-board-card="observed-sample"]');
+  const card = page
+    .locator('[data-board-card]')
+    .filter({ has: page.getByRole('heading', { name: '样本与阈值', exact: true }) });
   await card.waitFor();
   assert.equal(await card.getAttribute('data-card-kind'), 'board');
   assert.match(await card.textContent(), /已观测的样本/);

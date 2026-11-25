@@ -1,6 +1,9 @@
 import type { Static, TSchema } from '@sinclair/typebox';
 import type { ModelCatalogEntry, ModelStatus } from './model-protocol.js';
 
+export const structuredOutputTool = 'emit_result';
+export const maxStructuredAttempts = 2;
+
 export interface StructuredModelRequest<S extends TSchema> {
   schema: S;
   prompt: string;
@@ -9,8 +12,38 @@ export interface StructuredModelRequest<S extends TSchema> {
   maxTokens?: number;
   /** A caller with its own correction loop can take ownership of retries. */
   attempts?: 1 | 2;
+  /** Cheap, request-local syntax cleanup before strict output validation. */
+  normalizeOutput?: (value: unknown) => unknown;
   tools?: readonly StructuredModelTool[];
   maxToolCalls?: number;
+}
+
+export function validModelRequestBudget({
+  timeoutMs,
+  maxTokens,
+  attempts,
+  tools,
+  maxToolCalls,
+}: Required<
+  Pick<
+    StructuredModelRequest<TSchema>,
+    'timeoutMs' | 'maxTokens' | 'attempts' | 'tools' | 'maxToolCalls'
+  >
+>): boolean {
+  return (
+    Number.isSafeInteger(timeoutMs) &&
+    timeoutMs >= 1 &&
+    timeoutMs <= 60_000 &&
+    Number.isSafeInteger(maxTokens) &&
+    maxTokens >= 1 &&
+    (attempts === 1 || attempts === maxStructuredAttempts) &&
+    Number.isSafeInteger(maxToolCalls) &&
+    maxToolCalls >= 0 &&
+    maxToolCalls <= 2 &&
+    (maxToolCalls === 0 || tools.length > 0) &&
+    tools.every(({ name }) => name && name !== structuredOutputTool) &&
+    new Set(tools.map(({ name }) => name)).size === tools.length
+  );
 }
 
 export interface StructuredModelTool {

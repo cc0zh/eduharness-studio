@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import type { Action } from '@eduharness-studio/engine';
 import { createFauxModelGateway } from '@eduharness-studio/engine/models';
 import { createTeacherPlanner } from '@eduharness-studio/engine/teacher';
 import { createSessionStore } from '../apps/server/src/session-store.js';
@@ -106,7 +107,8 @@ test('offline first low effort gets a two-choice scaffold; repeated low effort a
     if (next.beat.action.type === 'ask' && next.beat.action.mode === 'choice')
       choice = next.beat.action;
   }
-  assert.equal(choice?.options?.length, 2);
+  assert.ok(choice);
+  assert.equal(choice.options?.length, 2);
   const afterFirst = offlineStore.inspect(live.id);
   assert.equal(afterFirst?.snapshot.keypoints?.[0].status, 'active');
   assert.equal(
@@ -116,7 +118,7 @@ test('offline first low effort gets a two-choice scaffold; repeated low effort a
 
   const second = await offlineStore.answer(live.id, {
     generation: live.generation,
-    ask_step_id: choice?.step_id ?? 0,
+    ask_step_id: choice.step_id,
     text: '继续',
   });
   assert.ok('keypoints' in second);

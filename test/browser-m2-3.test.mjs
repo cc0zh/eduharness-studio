@@ -104,10 +104,18 @@ test('M2-3 Chromium: loopback curriculum, lazy unlock, persistence and authorita
   const sessionId = await page.locator('[data-session-id]').getAttribute('data-session-id');
   await page.getByRole('button', { name: '暂停', exact: true }).click();
   await stepToAsk(page);
-  await page
-    .locator('[data-ask-card]')
-    .getByRole('button', { name: selectedLabel, exact: true })
-    .click();
+  const [submission] = await Promise.all([
+    page.waitForRequest(
+      (request) =>
+        request.method() === 'POST' && request.url() === `${url}/api/sessions/${sessionId}/answer`,
+    ),
+    page
+      .locator('[data-ask-card]')
+      .getByRole('button', { name: selectedLabel, exact: true })
+      .click(),
+  ]);
+  const { option_id, ask_step_id } = submission.postDataJSON();
+  assert.match(option_id, /^option-\d+$/);
   await page.locator('[data-ask-card]').waitFor({ state: 'hidden' });
 
   const chatCalls = mock.calls.filter(
@@ -136,13 +144,15 @@ test('M2-3 Chromium: loopback curriculum, lazy unlock, persistence and authorita
       .find((line) => line.startsWith('课堂输入：'))
       .slice('课堂输入：'.length),
   );
+  assert.equal(context.lastPlayed, ask_step_id);
   assert.equal(context.input.text, selectedLabel);
   assert.equal(context.input.choice, true);
   assert.equal('option_id' in context.input, false);
   assert.equal(context.currentAsk.options.length, 2);
   assert.ok(context.currentAsk.options.includes(selectedLabel));
   assert.ok(context.currentAsk.options.includes('所有带标签的样本'));
-  assert.doesNotMatch(teacherPrompt, /"id"\s*:\s*"(?:low|high)"/);
+  assert.equal(teacherPrompt.includes(JSON.stringify(option_id)), false);
+  assert.doesNotMatch(teacherPrompt, /"option-\d+"/);
 
   await page.reload();
   await page.waitForFunction(

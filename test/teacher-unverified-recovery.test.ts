@@ -1,19 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Action } from '@eduharness-studio/engine';
-import {
-  lowEffortScaffold,
-  makeFixture,
-  opening,
-  startAtAsk,
-  unverifiedTurn,
-} from './teacher-test-support.js';
+import { afterSkip, makeFixture, opening, scaffold, startAtAsk } from './teacher-test-support.js';
 
 test('a truncated skip stays pending until its replacement outcome is acknowledged', async (t) => {
   const fixture = makeFixture(t);
   fixture.faux.setResponses([fixture.structured(opening)]);
   const live = await startAtAsk(fixture.store, () => fixture.store.start(fixture.options(false)));
-  fixture.faux.setResponses([fixture.structured(lowEffortScaffold())]);
+  fixture.faux.setResponses([fixture.structured(scaffold)]);
   const first = await fixture.store.answer(live.id, {
     generation: live.generation,
     ask_step_id: live.ask.step_id,
@@ -42,7 +36,7 @@ test('a truncated skip stays pending until its replacement outcome is acknowledg
     .inspect(live.id)
     ?.snapshot.keypoints?.find(({ status }) => status === 'active')?.id;
   assert.ok(activeKeypointId);
-  fixture.faux.setResponses([fixture.structured(unverifiedTurn(activeKeypointId, 'first-skip'))]);
+  fixture.faux.setResponses([fixture.structured(afterSkip)]);
   const second = await fixture.store.answer(live.id, {
     generation: live.generation,
     ask_step_id: choice.step_id,
@@ -55,13 +49,18 @@ test('a truncated skip stays pending until its replacement outcome is acknowledg
   assert.equal(fixture.store.inspect(live.id)?.snapshot.keypoints?.[0].status, 'active');
   const queued = fixture.store.openStream(live.id, live.generation);
   assert.ok(queued && !('error' in queued));
-  let playedBeforeTruncation = 0;
-  for (let step = 0; step < 2; step += 1) {
+  // Receive the planned mark but interrupt before acknowledging it: issued is not played.
+  let playedBeforeTruncation = choice.step_id;
+  let issuedMark: number | undefined;
+  for (let step = 0; step < 12; step += 1) {
     const beat = fixture.store.poll(queued);
     assert.equal(beat.kind, 'beat');
-    if (beat.kind !== 'beat') throw new Error('Expected the first two continuation beats');
+    if (beat.kind !== 'beat') throw new Error('Expected the queued unverified mark');
+    if (beat.beat.action.type === 'keypoint_unverified') {
+      issuedMark = beat.beat.action.step_id;
+      break;
+    }
     playedBeforeTruncation = beat.beat.action.step_id;
-    assert.notEqual(beat.beat.action.type, 'keypoint_unverified');
     assert.ok(
       'ok' in
         fixture.store.progress(live.id, {
@@ -70,18 +69,20 @@ test('a truncated skip stays pending until its replacement outcome is acknowledg
         }),
     );
   }
+  assert.ok(issuedMark);
   const beforeInterrupt = fixture.store.inspect(live.id);
   const pendingAnswerSkip = beforeInterrupt?.trace.teacherTurns?.find(
     ({ trigger, unverified }) => trigger === 'answer' && unverified === activeKeypointId,
   );
   assert.ok(pendingAnswerSkip?.unverifiedStepId);
+  assert.equal(issuedMark, pendingAnswerSkip.unverifiedStepId);
   assert.equal(
     beforeInterrupt?.trace.playedStepIds?.includes(pendingAnswerSkip.unverifiedStepId),
     false,
   );
   assert.equal(beforeInterrupt?.snapshot.keypoints?.[0].status, 'active');
 
-  fixture.faux.setResponses([fixture.structured(unverifiedTurn(activeKeypointId, 'retry-skip'))]);
+  fixture.faux.setResponses([fixture.structured(afterSkip)]);
   const resumed = await fixture.store.interrupt(live.id, {
     generation: live.generation,
     last_played_step_id: playedBeforeTruncation,
@@ -94,6 +95,7 @@ test('a truncated skip stays pending until its replacement outcome is acknowledg
     ({ trigger, unverified }) => trigger === 'interrupt' && unverified === activeKeypointId,
   );
   assert.ok(pendingInterruptSkip?.unverifiedStepId);
+  assert.ok(pendingInterruptSkip.unverifiedStepId > issuedMark);
   assert.equal(
     afterInterrupt?.trace.playedStepIds?.includes(pendingInterruptSkip.unverifiedStepId),
     false,

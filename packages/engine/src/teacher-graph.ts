@@ -3,10 +3,8 @@ import { type GraphGenerationOptions, generateGraph } from './graph-generator.js
 import type { Action } from './protocol.js';
 import type { LessonTraceSpan } from './session-protocol.js';
 import type { ModelGateway } from './structured-model.js';
-import { type guardTeacherTurn, openingReveal } from './teacher-guardrails.js';
-
-export const teacherGraphInstruction =
-  '默认用文字板书、表格或 KaTeX。仅当几何位置、结构关系或概率分布的形状仅靠文字/公式不易看懂时，允许用一拍 graph 代替 board；不是装饰。写 diagram_kind(geometry/structure/distribution)、description（只描述需要画的关系、已有数据和标签）、title、column、card_id、content（不用看图也能懂的完整文字板书，可带 formula）。不写 SVG，不把新图当作 highlight 的目标，不在图中提前揭晓让学生判断的结论。low_effort 回合只写文字。';
+import type { CompiledTeacherTurn } from './teacher-compiler.js';
+import { revealsOpeningAnswer } from './teacher-guardrails.js';
 
 const GraphDrawingSchema = Type.Object(
   { svg: Type.String({ maxLength: 32_000 }) },
@@ -63,10 +61,8 @@ export const TeacherGraphEvidenceSchema = Type.Object(
   strict,
 );
 type TeacherGraphEvidence = Static<typeof TeacherGraphEvidenceSchema>;
-type CheckedTurn = Extract<ReturnType<typeof guardTeacherTurn>, { ok: true }>;
-
 export async function materializeTeacherGraph(
-  checked: CheckedTurn,
+  checked: CompiledTeacherTurn,
   options: GraphGenerationOptions,
   opening: boolean,
 ): Promise<{ actions: Action[]; graph?: TeacherGraphEvidence }> {
@@ -85,7 +81,7 @@ export async function materializeTeacherGraph(
   const step_id = board.step_id;
   if (drawing.status === 'fallback')
     return { actions, graph: { step_id, durationMs, result: drawing } };
-  if (opening && openingReveal.test(drawing.svgMarkup.replace(/<[^>]*>/g, ' '))) {
+  if (opening && revealsOpeningAnswer(drawing.svgMarkup.replace(/<[^>]*>/g, ' '))) {
     return {
       actions,
       graph: { step_id, durationMs, result: { status: 'fallback', reason: 'opening_reveal' } },

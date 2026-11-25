@@ -46,12 +46,15 @@ function setup(t: TestContext) {
 
 const validOpening = {
   diagnosis: { status: 'opening', summary: '先观察读数。', strategy: '重复测量后再比较。' },
-  actions: [
-    { type: 'board', column: 1, card_id: 'noise-b1', content: '同一温度计连续读数会略有差别。' },
-    { type: 'speak', text: '先把每次读数都保留下来。' },
-    { type: 'highlight', card_id: 'noise-b1', target_text: '略有差别', style: 'circle' },
-    { type: 'ask', card_id: 'noise-q1', mode: 'open', prompt: '多测几次后，你会先比较什么？' },
+  panels: [
+    {
+      title: '读数的波动',
+      content: '同一温度计连续读数会略有差别。',
+      highlight: '略有差别',
+      voiceover: '先把每次读数都保留下来。',
+    },
   ],
+  next_ask: { prompt: '多测几次后，你会先比较什么？' },
 };
 
 test('course unlock 502 returns sanitized model-invalid reasons', async (t) => {
@@ -91,7 +94,9 @@ test('course unlock 502 returns sanitized model-invalid reasons', async (t) => {
   assert.equal(body.failure, 'course_lesson_invalid_output');
   assert.ok(
     body.reasons.some((reason: string) =>
-      reason.includes('model_invalid_output: invalid structured output'),
+      reason.includes(
+        'model_invalid_output: invalid structured output at $.opening.insert_keypoint',
+      ),
     ),
   );
   assert.equal(JSON.stringify(body).includes(outputSecret), false);
@@ -162,12 +167,9 @@ test('teacher 502 and X-Ray expose the same sanitized model-invalid reason', asy
 
   const invalidAnswer = {
     diagnosis: { status: 'answer_seeking', summary: '继续核对。', strategy: '再换一组数值。' },
-    actions: [
-      { type: 'board', column: 1, card_id: 'answer-b1', content: '读数变化仍围绕稳定值。' },
-      { type: 'speak', checkpoint: 'verify', text: '尚未通过近迁移检验。' },
-      { type: 'board', column: 1, card_id: 'answer-b2', content: '保留误差范围。' },
-      { type: 'ask', card_id: 'answer-q1', mode: 'open', prompt: '怎样判断误差范围？' },
-    ],
+    panels: [{ title: '测量误差', content: '读数变化仍围绕稳定值。' }],
+    next_ask: { prompt: '怎样判断误差范围？' },
+    resolution: { text: '没有回答迁移题。', conclusion: '不应提前记为掌握。' },
     OPENROUTER_API_KEY: outputSecret,
   };
   faux.setResponses([
@@ -183,16 +185,19 @@ test('teacher 502 and X-Ray expose the same sanitized model-invalid reason', asy
   assert.equal(failed.status, 502);
   const body = await failed.json();
   assert.equal(body.error, 'teacher_turn_failed');
-  assert.ok(body.reasons.some((reason: string) => reason.includes('model_invalid_output')));
+  const forbidden =
+    'model_invalid_output: invalid structured output at $.resolution: unexpected field';
+  assert.ok(body.reasons.includes(forbidden));
 
   const xrayResponse = await app.request(`${endpoint}/xray`);
   assert.equal(xrayResponse.status, 200);
   const trace = await xrayResponse.json();
   const rejectedTurn = trace.teacherTurns.at(-1);
   assert.equal(rejectedTurn.outcome, 'rejected');
+  assert.equal(rejectedTurn.guardrails.length, 3);
   assert.ok(
-    rejectedTurn.guardrails.some((guardrail: { reasons: string[] }) =>
-      guardrail.reasons.some((reason) => reason.includes('model_invalid_output')),
+    rejectedTurn.guardrails.every(({ reasons }: { reasons: string[] }) =>
+      reasons.includes(forbidden),
     ),
   );
   for (const payload of [JSON.stringify(body), JSON.stringify(trace)]) {

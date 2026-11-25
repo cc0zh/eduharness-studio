@@ -7,6 +7,7 @@ import {
   type Keypoint,
   KeypointSchema,
 } from './protocol.js';
+import { stateAfterBeat, type TeachingState } from './state.js';
 import { sanitizeSvg } from './static-svg.js';
 
 export const LessonKeypointsSchema = Type.Array(KeypointSchema, { minItems: 2, maxItems: 6 });
@@ -124,4 +125,29 @@ export function projectKeypointProgress(
     })),
     currentIndex: firstOpen < 0 ? keypoints.length - 1 : firstOpen,
   };
+}
+
+/** Final recap panels follow the last outcome; they close only after the outcomes have played. */
+export function stateAfterScriptBeat(
+  state: TeachingState,
+  action: Action,
+  waitingForAnswer: boolean,
+  script: LessonScript,
+): TeachingState | undefined {
+  const final = action.step_id === script.actions.at(-1)?.step_id;
+  const next = stateAfterBeat(state, action, waitingForAnswer, final);
+  if (next || !final || waitingForAnswer || state !== 'scaffold') return next;
+  if (
+    action.type !== 'board' &&
+    action.type !== 'graph' &&
+    action.type !== 'highlight' &&
+    !(action.type === 'speak' && !action.checkpoint)
+  )
+    return undefined;
+  const played = script.actions.filter(({ step_id }) => step_id < action.step_id);
+  const { keypoints } = projectKeypointProgress(script.keypoints, played);
+  return keypoints.length &&
+    keypoints.every(({ status }) => status === 'completed' || status === 'unverified')
+    ? 'completed'
+    : undefined;
 }

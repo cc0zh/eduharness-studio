@@ -58,7 +58,6 @@ test('another SQLite connection cannot duplicate an in-flight teacher model turn
       await held;
       return fixture.structured(scaffold);
     },
-    fixture.structured(scaffold),
   ]);
   const answer = { generation: live.generation, ask_step_id: live.ask.step_id, text: '继续' };
   const first = fixture.store.answer(live.id, answer);
@@ -70,6 +69,7 @@ test('another SQLite connection cannot duplicate an in-flight teacher model turn
   assert.equal(fixture.faux.state.callCount, requests);
   release?.();
   assert.ok('ok' in (await first));
+  assert.equal(fixture.faux.state.callCount, requests);
 });
 
 test('an in-flight cross-worker interruption keeps the previous SSE stream idle', async (t) => {
@@ -110,12 +110,15 @@ test('an in-flight cross-worker interruption keeps the previous SSE stream idle'
       await held;
       return fixture.structured({
         diagnosis: { status: 'clarifying', summary: '换个例子。', strategy: '保持未完成。' },
-        actions: [
-          { type: 'board', column: 1, card_id: 'interrupt-board', content: '再看一组积木。' },
-          { type: 'speak', text: '先把积木每两块放成一组。' },
-          { type: 'highlight', card_id: 'interrupt-board', target_text: '两块', style: 'circle' },
-          { type: 'ask', card_id: 'interrupt-ask', mode: 'open', prompt: '七块会剩下几块？' },
+        panels: [
+          {
+            title: '换一组',
+            content: '先把积木每两块放成一组。',
+            highlight: '两块',
+            voiceover: '再看一组积木。',
+          },
         ],
+        next_ask: { prompt: '七块会剩下几块？' },
       });
     },
   ]);

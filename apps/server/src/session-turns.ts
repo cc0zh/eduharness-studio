@@ -161,14 +161,13 @@ export function createSessionTurns(
       if (!('session' in prepared)) return prepared;
       const { session, progress } = prepared;
       const cut = truncateOnInterrupt(session.queue.script.actions, session.lastPlayed || null);
-      const truncatedCardIds = cut.truncated.flatMap((action) =>
-        action.type === 'board' || action.type === 'ask' || action.type === 'graph'
-          ? [action.card_id]
-          : [],
-      );
+      const truncatedIds = cut.truncated.flatMap((action) => {
+        if (action.type === 'new_page') return [action.page_id];
+        return 'card_id' in action ? [action.card_id] : [];
+      });
       const nextProgress: TeacherProgress = {
         ...progress,
-        truncatedCardIds: [...new Set([...progress.truncatedCardIds, ...truncatedCardIds])],
+        truncatedCardIds: [...new Set([...progress.truncatedCardIds, ...truncatedIds])],
       };
       return applyTeacherTurn(
         session,

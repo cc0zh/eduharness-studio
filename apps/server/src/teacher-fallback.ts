@@ -4,10 +4,14 @@ import {
   projectKeypointProgress,
   validateLessonScript,
 } from '@eduharness-studio/engine';
-import { effortSignal, type TeacherProgress } from '@eduharness-studio/engine/teacher';
+import {
+  compileTeacherTurn,
+  effortSignal,
+  type TeacherProgress,
+} from '@eduharness-studio/engine/teacher';
 import type { SessionCursor } from './session-cursor.js';
 import type { StoredSession, sessionDatabase } from './session-db.js';
-import { sameSession, type TeacherOperationLock } from './session-teacher.js';
+import { sameSession, type TeacherOperationLock, teacherContext } from './session-teacher.js';
 
 type Store = ReturnType<typeof sessionDatabase>;
 
@@ -29,6 +33,17 @@ export function createTeacherFallback(
     );
     const current = keypoints[currentIndex];
     if (!current) throw new Error('Missing active keypoint in teacher fallback');
+    if (current.status !== 'active') {
+      const recap = compileTeacherTurn(
+        teacherContext(cursor, session, { kind: 'interrupt', text: '' }, progress),
+        {
+          diagnosis: { status: 'clarifying', summary: '要点结果已确认。', strategy: '离线收尾。' },
+          panels: [{ title: '课堂回顾', content: '保留已经确认的要点。这节课先到这里。' }],
+        },
+      );
+      if (!recap.ok) throw new Error('Invalid offline recap scene');
+      return recap.actions;
+    }
     const next = keypoints[currentIndex + 1];
     let step = Math.max(progress.highWater, session.queue.script.actions.at(-1)?.step_id ?? 0);
     const id = `offline-${step + 1}`;

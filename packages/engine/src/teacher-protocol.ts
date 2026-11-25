@@ -1,20 +1,8 @@
-import { type Static, type TObject, type TProperties, type TSchema, Type } from '@sinclair/typebox';
-import {
-  BoardActionSchema,
-  ChoiceAskActionSchema,
-  DepthTagSchema,
-  HighlightActionSchema,
-  KeypointCompleteActionSchema,
-  KeypointUnverifiedActionSchema,
-  NewColumnActionSchema,
-  NewPageActionSchema,
-  OpenAskActionSchema,
-  SpeakActionSchema,
-} from './protocol.js';
+import { type Static, Type } from '@sinclair/typebox';
 
 const strict = { additionalProperties: false };
-const short = (maxLength: number) => Type.String({ minLength: 1, maxLength });
-const draft = <P extends TProperties>(action: TObject<P>) => Type.Omit(action, ['step_id'], strict);
+export const teacherText = (maxLength: number, description?: string) =>
+  Type.String({ pattern: '\\S', maxLength, ...(description ? { description } : {}) });
 
 export const TeacherDiagnosisSchema = Type.Object(
   {
@@ -27,146 +15,12 @@ export const TeacherDiagnosisSchema = Type.Object(
       Type.Literal('low_effort'),
       Type.Literal('clarifying'),
     ]),
-    summary: short(180),
-    strategy: short(180),
+    summary: Type.String({ minLength: 1, maxLength: 180, description: '简要认知诊断。' }),
+    strategy: Type.String({ minLength: 1, maxLength: 180, description: '简要教学决策。' }),
   },
   strict,
 );
 
-const InsertKeypointSchema = Type.Object(
-  {
-    id: Type.String({ pattern: '^[a-zA-Z0-9_-]{1,64}$' }),
-    title: short(48),
-    objective: short(140),
-    depth: DepthTagSchema,
-  },
-  strict,
-);
-
-// A request, not a playable graph. It carries complete alternative boardwork, never markup.
-export const TeacherGraphDraftSchema = Type.Object(
-  {
-    ...Type.Omit(BoardActionSchema, ['step_id', 'title', 'type']).properties,
-    type: Type.Literal('graph'),
-    title: short(48),
-    diagram_kind: Type.Union([
-      Type.Literal('geometry'),
-      Type.Literal('structure'),
-      Type.Literal('distribution'),
-    ]),
-    description: short(240),
-  },
-  strict,
-);
-export type TeacherGraphDraft = Static<typeof TeacherGraphDraftSchema>;
-
-const commonDrafts = [
-  draft(BoardActionSchema),
-  TeacherGraphDraftSchema,
-  draft(NewColumnActionSchema),
-  draft(NewPageActionSchema),
-  draft(HighlightActionSchema),
-  draft(OpenAskActionSchema),
-  draft(ChoiceAskActionSchema),
-  draft(KeypointUnverifiedActionSchema),
-] as const;
-
-function turnSchema<T extends TSchema>(action: T) {
-  return Type.Object(
-    {
-      diagnosis: TeacherDiagnosisSchema,
-      insert_keypoint: Type.Optional(InsertKeypointSchema),
-      actions: Type.Array(action, { minItems: 4, maxItems: 8 }),
-    },
-    strict,
-  );
-}
-
-export const TeacherTurnOutputSchema = turnSchema(
-  Type.Union([...commonDrafts, draft(SpeakActionSchema), draft(KeypointCompleteActionSchema)]),
-);
-
-export type TeacherTurnSchemaPolicy = {
-  opening?: boolean;
-  insertKeypoint: boolean;
-  keypointComplete: boolean;
-  keypointUnverified: boolean;
-  askCheckpoint: boolean;
-  speakCheckpoint: boolean;
-};
-
-function diagnosisSchemaForPolicy(policy: TeacherTurnSchemaPolicy) {
-  if (policy.opening) {
-    return Type.Object(
-      { status: Type.Literal('opening'), summary: short(180), strategy: short(180) },
-      strict,
-    );
-  }
-  const statuses: TSchema[] = [
-    Type.Literal('misconception'),
-    Type.Literal('missing_prereq'),
-    Type.Literal('answer_seeking'),
-    Type.Literal('low_effort'),
-    Type.Literal('clarifying'),
-    ...(policy.keypointComplete ? [Type.Literal('mastered')] : []),
-  ];
-  return Type.Object(
-    {
-      status: Type.Union(statuses as [TSchema, ...TSchema[]]),
-      summary: short(180),
-      strategy: short(180),
-    },
-    strict,
-  );
-}
-
-/** Create a strict subset of the structured-turn contract for one teaching phase. */
-export function createTeacherTurnSchema(
-  policy: TeacherTurnSchemaPolicy,
-): typeof TeacherTurnOutputSchema {
-  const actions: TSchema[] = [
-    draft(BoardActionSchema),
-    TeacherGraphDraftSchema,
-    draft(NewColumnActionSchema),
-    draft(NewPageActionSchema),
-    draft(HighlightActionSchema),
-    policy.askCheckpoint
-      ? draft(OpenAskActionSchema)
-      : Type.Omit(OpenAskActionSchema, ['step_id', 'checkpoint'], strict),
-    policy.askCheckpoint
-      ? draft(ChoiceAskActionSchema)
-      : Type.Omit(ChoiceAskActionSchema, ['step_id', 'checkpoint'], strict),
-    ...(policy.keypointUnverified ? [draft(KeypointUnverifiedActionSchema)] : []),
-    policy.speakCheckpoint
-      ? draft(SpeakActionSchema)
-      : Type.Omit(SpeakActionSchema, ['step_id', 'checkpoint'], strict),
-    ...(policy.keypointComplete ? [draft(KeypointCompleteActionSchema)] : []),
-  ];
-  const schema = Type.Object(
-    {
-      diagnosis: diagnosisSchemaForPolicy(policy),
-      ...(policy.insertKeypoint ? { insert_keypoint: Type.Optional(InsertKeypointSchema) } : {}),
-      actions: Type.Array(Type.Union(actions as [TSchema, ...TSchema[]]), {
-        minItems: 4,
-        maxItems: 8,
-      }),
-    },
-    strict,
-  );
-  // Each runtime schema is a strict subset of TeacherTurnOutputSchema.
-  return schema as unknown as typeof TeacherTurnOutputSchema;
-}
-
-export const TeacherOpeningTurnSchema = createTeacherTurnSchema({
-  opening: true,
-  insertKeypoint: false,
-  keypointComplete: false,
-  keypointUnverified: false,
-  askCheckpoint: false,
-  speakCheckpoint: false,
-});
-
-export type TeacherTurnOutput = Static<typeof TeacherTurnOutputSchema>;
 export type TeacherDiagnosis = Static<typeof TeacherDiagnosisSchema>;
 
 const basisText = Type.String({ minLength: 1, maxLength: 400 });

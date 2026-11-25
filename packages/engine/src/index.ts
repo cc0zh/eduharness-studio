@@ -46,6 +46,7 @@ export {
   readCurrentLessonBeat,
   readLessonBeat,
   readLessonGeneration,
+  stateAfterScriptBeat,
   validateLessonScript,
 } from './lesson-playback.js';
 export type {

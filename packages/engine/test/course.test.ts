@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createCourseLessonPlanner, validateLessonMaterial } from '../src/course.js';
-import { createFauxModelGateway, fauxAssistantMessage, fauxToolCall } from '../src/models.js';
 import type { CourseBlueprint, LessonRef } from '../src/protocol.js';
+import { fauxResult, localFaux, scene } from './teacher-scene-fixture.js';
 
 const course: CourseBlueprint = {
   id: 'course-test',
@@ -27,7 +27,7 @@ const course: CourseBlueprint = {
 
 const lesson: LessonRef = course.units[0].lessons[0];
 
-function draft(duplicateAskId = false) {
+function draft() {
   return {
     keypoints: [
       { id: 'base-rate', title: '基数率', objective: '辨认患病率。', depth: 'intuition' },
@@ -39,151 +39,111 @@ function draft(duplicateAskId = false) {
       },
     ],
     opening: {
-      diagnosis: {
-        status: 'opening',
-        summary: '先列出阳性和阴性样本。',
-        strategy: '用混淆矩阵区分条件概率。',
-      },
-      actions: [
-        { type: 'board', column: 1, card_id: 'matrix', content: '先分清患病与阳性。' },
-        { type: 'speak', text: '假阳性也会进入阳性组。' },
-        { type: 'speak', text: '基数率决定阳性组的构成。' },
-        {
-          type: 'ask',
-          card_id: duplicateAskId ? 'matrix' : 'question',
-          mode: 'open',
-          prompt: '阳性者中有多少真正患病？',
-        },
+      ...scene(),
+      panels: [
+        { title: '筛查结果', content: '先分清患病与阳性。', voiceover: '假阳性也会进入阳性组。' },
       ],
-    },
-  } as const;
-}
-
-function oversizedDraftReasons() {
-  const output = draft();
-  return {
-    ...output,
-    opening: {
-      ...output.opening,
-      actions: Array.from({ length: 8 }, (_, index) => ({
-        type: 'board' as const,
-        column: 1,
-        card_id: `reused-${index === 0 ? 'first' : 'same'}`,
-        title: '标题'.repeat(25),
-        content: '板书'.repeat(141),
-      })),
+      next_ask: { prompt: '阳性者中有多少真正患病？' },
     },
   };
 }
 
-const encoded = (value: Parameters<typeof fauxToolCall>[1]['value']) =>
-  fauxAssistantMessage(fauxToolCall('emit_result', { value }), { stopReason: 'toolUse' });
-
-test('lazy lesson retries a rejected opening turn before materializing or unlocking it', async () => {
-  const faux = createFauxModelGateway();
-  assert.ok(faux.gateway.setByok({ provider: 'faux', modelId: 'faux-1', apiKey: 'faux-test-key' }));
-  faux.setResponses([encoded(draft(true)), encoded(draft())]);
-  const plan = createCourseLessonPlanner(faux.gateway, {});
-  const result = await plan({ course, lesson, previousKeypoints: [] });
-  assert.equal(faux.state.callCount, 2);
-  assert.deepEqual(result.material.openingEvidence?.guardrails, [
-    {
-      attempt: 1,
-      reasons: [
-        'actions[3]: ask.card_id must be new and distinct from all board and ask cards, including cards from a truncated beat',
-      ],
-    },
+test('lazy lesson retries a revealing opening before materializing or unlocking it', async () => {
+  const faux = localFaux();
+  const valid = draft();
+  faux.setResponses([
+    fauxResult({
+      ...valid,
+      opening: {
+        ...valid.opening,
+        panels: [{ ...valid.opening.panels[0], voiceover: '正确答案是 B。' }],
+      },
+    }),
+    fauxResult(valid),
   ]);
+  const result = await createCourseLessonPlanner(
+    faux.gateway,
+    {},
+  )({ course, lesson, previousKeypoints: [] });
+  assert.equal(faux.state.callCount, 2);
+  assert.match(
+    result.material.openingEvidence?.guardrails[0]?.reasons.join(' ') ?? '',
+    /reveals the answer/,
+  );
   assert.equal(result.material.script.actions.at(-1)?.type, 'ask');
   assert.equal(result.material.script.actions[0].type, 'board');
 });
 
-test('lazy lesson opening correction explicitly removes insertions and premature verify asks', async () => {
-  const faux = createFauxModelGateway();
-  assert.ok(faux.gateway.setByok({ provider: 'faux', modelId: 'faux-1', apiKey: 'faux-test-key' }));
+test('lazy opening uses the same pruned scene contract on the first request and correction', async () => {
+  const faux = localFaux();
   const invalid = draft();
-  let openingPrompt = '';
-  let retryPrompt = '';
+  const prompts: string[] = [];
   faux.setResponses([
     (request) => {
-      openingPrompt = request.messages
-        .filter(({ role }) => role === 'user')
-        .map(({ content }) => String(content))
-        .join('\n');
-      return encoded({
+      prompts.push(String(request.messages.find(({ role }) => role === 'user')?.content));
+      return fauxResult({
         ...invalid,
         opening: {
           ...invalid.opening,
           insert_keypoint: {
             id: 'prerequisite',
             title: '认出阳性',
-            objective: '识别检测阳性的样本。',
+            objective: '识别阳性的样本。',
             depth: 'intuition',
           },
-          actions: invalid.opening.actions.map((action) =>
-            action.type === 'ask' ? { ...action, checkpoint: 'verify' as const } : action,
-          ),
+          next_ask: { ...invalid.opening.next_ask, transfer: true },
         },
       });
     },
     (request) => {
-      retryPrompt = request.messages
-        .filter(({ role }) => role === 'user')
-        .map(({ content }) => String(content))
-        .join('\n');
-      return encoded(draft());
+      prompts.push(String(request.messages.find(({ role }) => role === 'user')?.content));
+      const good = draft();
+      return fauxResult({
+        ...good,
+        opening: {
+          ...good.opening,
+          unused: 'discard me',
+          panels: [{ ...good.opening.panels[0], formula: '  ' }],
+        },
+      });
     },
   ]);
-  const planned = await createCourseLessonPlanner(
+  const { material } = await createCourseLessonPlanner(
     faux.gateway,
     {},
-  )({
-    course,
-    lesson,
-    previousKeypoints: [],
-  });
-  assert.match(openingPrompt, /ONLY top-level keys keypoints/);
-  assert.match(openingPrompt, /Inside opening, include ONLY diagnosis .* and actions/);
-  assert.doesNotMatch(openingPrompt, /insert_keypoint|keypoint_complete|keypoint_unverified/);
-  assert.match(openingPrompt, /exactly one ordinary ask as the final beat \(without checkpoint\)/);
-  assert.match(
-    retryPrompt,
-    /Rewrite the complete lesson payload \(keypoints, optional basis, and opening\) and fix these previous guardrail reasons/,
-  );
-  assert.match(retryPrompt, /model_invalid_output/);
-  assert.match(
-    retryPrompt,
-    /invalid structured output at \$\.opening\.insert_keypoint: unexpected field/,
-  );
-  assert.match(
-    retryPrompt,
-    /invalid structured output at \$\.opening\.actions\[3\]\.checkpoint: unexpected field/,
-  );
-  assert.ok(validateLessonMaterial(planned.material));
-  const rejectedOpening = planned.material.openingEvidence?.guardrails[0];
-  assert.equal(rejectedOpening?.attempt, 1);
-  assert.ok(rejectedOpening?.reasons.some((reason) => reason.includes('opening.insert_keypoint')));
-  assert.ok(
-    rejectedOpening?.reasons.some((reason) => reason.includes('checkpoint: unexpected field')),
-  );
-  assert.equal(JSON.stringify(rejectedOpening).includes('faux-test-key'), false);
+  )({ course, lesson, previousKeypoints: [] });
+  for (const prompt of prompts) {
+    assert.match(prompt, /ONLY top-level keys keypoints/);
+    assert.match(prompt, /panels：1–3 项列表/);
+    assert.doesNotMatch(prompt, /insert_keypoint|resolution|transfer|keypoint_complete|checkpoint/);
+  }
+  assert.match(prompts[1], /previous submission was invalid/);
+  const reasons = material.openingEvidence?.guardrails[0]?.reasons.join(' ') ?? '';
+  assert.match(reasons, /opening.insert_keypoint: unexpected field/);
+  assert.match(reasons, /opening.next_ask.transfer: unexpected field/);
+  assert.ok(validateLessonMaterial(material));
   assert.equal(faux.state.callCount, 2);
 });
 
-test('stored opening retry diagnostics stay within the material schema reason cap', async () => {
-  const faux = createFauxModelGateway();
-  assert.ok(faux.gateway.setByok({ provider: 'faux', modelId: 'faux-1', apiKey: 'faux-test-key' }));
-  faux.setResponses([encoded(oversizedDraftReasons()), encoded(draft())]);
-  const result = await createCourseLessonPlanner(
+test('stored opening failures remain valid bounded X-Ray evidence', async () => {
+  const faux = localFaux();
+  const output = draft();
+  const panels = Array.from({ length: 4 }, () => ({
+    title: '标题'.repeat(25),
+    content: '板书'.repeat(141),
+    voiceover: '字幕'.repeat(90),
+  }));
+  faux.setResponses([
+    fauxResult({ ...output, opening: { ...output.opening, panels } }),
+    fauxResult(output),
+  ]);
+  const { material } = await createCourseLessonPlanner(
     faux.gateway,
     {},
-  )({
-    course,
-    lesson,
-    previousKeypoints: [],
-  });
-  const reasons = result.material.openingEvidence?.guardrails[0]?.reasons;
-  assert.equal(reasons?.length, 20);
-  assert.ok(validateLessonMaterial(result.material));
+  )({ course, lesson, previousKeypoints: [] });
+  const reasons = material.openingEvidence?.guardrails[0]?.reasons ?? [];
+  assert.ok(reasons.length > 0 && reasons.length <= 20);
+  assert.match(reasons.join(' '), /panels: too many items/);
+  assert.ok(validateLessonMaterial(material));
   assert.equal(faux.state.callCount, 2);
 });

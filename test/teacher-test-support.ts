@@ -15,70 +15,40 @@ import { createSessionStore } from '../apps/server/src/session-store.js';
 
 export const opening = {
   diagnosis: { status: 'opening', summary: '先观察配对。', strategy: '摆成一行。' },
-  actions: [
-    { type: 'board', column: 1, card_id: 'open', content: '五块积木试着两两配对。' },
-    { type: 'speak', text: '先每两块摆成一组。' },
-    { type: 'highlight', card_id: 'open', target_text: '两两', style: 'circle' },
-    { type: 'ask', card_id: 'open-ask', mode: 'open', prompt: '最后会剩下什么？' },
+  panels: [
+    {
+      title: '积木分组',
+      content: '五块积木试着两两配对。',
+      highlight: '两两',
+      voiceover: '先每两块摆成一组。',
+    },
   ],
+  next_ask: { prompt: '最后会剩下什么？' },
 };
 
 export const scaffold = {
   diagnosis: { status: 'low_effort', summary: '尚无判断。', strategy: '轻量点选。' },
-  actions: [
-    { type: 'board', column: 1, card_id: 'choice-board', content: '每组摆两块。' },
-    { type: 'speak', text: '先选一个直觉判断。' },
-    { type: 'highlight', card_id: 'choice-board', target_text: '两块', style: 'circle' },
+  panels: [
     {
-      type: 'ask',
-      card_id: 'choice-ask',
-      mode: 'choice',
-      prompt: '五块会怎样？',
-      options: [
-        { id: 'one-left', label: '剩下一块' },
-        { id: 'none', label: '没有剩余' },
-      ],
+      title: '先摆一组',
+      content: '每组摆两块。',
+      highlight: '两块',
+      voiceover: '先选一个直觉判断。',
     },
   ],
+  next_ask: { prompt: '五块会怎样？', options: ['剩下一块', '没有剩余'] },
 };
 
-export function lowEffortScaffold() {
-  return {
-    diagnosis: { status: 'low_effort', summary: '尚无判断。', strategy: '改成二选一。' },
-    actions: [
-      { type: 'board', column: 1, card_id: 'first-low', content: '先摆两块积木。' },
-      { type: 'speak', text: '先比较这两块。' },
-      { type: 'highlight', card_id: 'first-low', target_text: '两块', style: 'circle' },
-      {
-        type: 'ask',
-        card_id: 'first-low-ask',
-        mode: 'choice',
-        prompt: '它们能组成一对吗？',
-        options: [
-          { id: 'pair', label: '能组成一对' },
-          { id: 'apart', label: '还不能' },
-        ],
-      },
-    ],
-  };
-}
-
-export function unverifiedTurn(keypointId: string, prefix: string) {
-  return {
-    diagnosis: {
-      status: 'low_effort',
-      summary: '连续回复仍没有显示推理。',
-      strategy: '诚实记下后继续。',
-    },
-    actions: [
-      { type: 'board', column: 1, card_id: `${prefix}-board`, content: '每一组摆两块。' },
-      { type: 'speak', text: '先记住这条线索。' },
-      { type: 'keypoint_unverified', keypoint_id: keypointId },
-      { type: 'board', column: 2, card_id: `${prefix}-next`, content: '换成另一组数量。' },
-      { type: 'ask', card_id: `${prefix}-ask`, mode: 'open', prompt: '现在可以分成几对？' },
-    ],
-  };
-}
+// The teacher proposes the next scene; only the engine can mark a point unverified.
+export const afterSkip = {
+  diagnosis: {
+    status: 'low_effort',
+    summary: '连续回复仍没有显示推理。',
+    strategy: '换个例子继续。',
+  },
+  panels: [{ title: '下一组积木', content: '现在看六块积木。', voiceover: '还是每一组摆两块。' }],
+  next_ask: { prompt: '六块可以分成几对？' },
+};
 
 export function makeFixture(t: TestContext) {
   const directory = mkdtempSync(join(tmpdir(), 'eduharness-teacher-lock-'));

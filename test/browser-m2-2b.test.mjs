@@ -116,7 +116,7 @@ test('M2-2b Chromium: loopback BYOK, native calc_verify tool cycle, guardrails a
   await screenshot(page, '03-xray-tool-span-and-opening-diagnosis.png');
 
   const firstAsk = page.locator(askCard);
-  await firstAsk.locator('fieldset button').last().click();
+  await firstAsk.getByRole('button', { name: '5 个', exact: true }).click();
   await firstAsk.waitFor({ state: 'hidden' });
   await pause(page);
   await handoff(page);
@@ -124,12 +124,10 @@ test('M2-2b Chromium: loopback BYOK, native calc_verify tool cycle, guardrails a
   assert.ok(
     trace.teacherTurns.some(({ guardrails }) =>
       guardrails.some(({ reasons }) =>
-        reasons.some(
-          (reason) => reason.includes('diagnosis.status') || reason.includes('mastery requires'),
-        ),
+        reasons.some((reason) => reason.includes('$.resolution: unexpected field')),
       ),
     ),
-    'Expected the turn schema or guardrail to reject an unverified mastery claim',
+    'Expected the ordinary-answer schema to reject a premature resolution',
   );
 
   await page.getByRole('switch', { name: 'Agent X-Ray' }).click();
@@ -163,14 +161,19 @@ test('M2-2b Chromium: loopback BYOK, native calc_verify tool cycle, guardrails a
     ),
     'The computed result was not returned to the model before the final structured output',
   );
-  assert.ok(
-    requests.some(({ body }) =>
-      body.messages.some(
-        ({ role, content }) => role === 'user' && String(content).includes('上一份回合被护栏拦截'),
-      ),
-    ),
-    'The model did not receive a state-machine correction attempt',
-  );
+  const answerAttempts = requests.flatMap(({ body }) => {
+    const prompt = body.messages.find(({ role }) => role === 'user')?.content;
+    const line =
+      typeof prompt === 'string' &&
+      prompt.split('\n').find((part) => part.startsWith('课堂输入：'));
+    if (!line) return [];
+    const context = JSON.parse(line.slice('课堂输入：'.length));
+    return context.input.kind === 'answer' ? [{ prompt, context }] : [];
+  });
+  assert.equal(answerAttempts.length, 2, 'one rejected submission must trigger exactly one retry');
+  assert.deepEqual(answerAttempts[1].context, answerAttempts[0].context);
+  assert.doesNotMatch(answerAttempts[0].prompt, /上次提交没有通过校验/);
+  assert.match(answerAttempts[1].prompt, /上次提交没有通过校验.*重交/);
   assert.ok(mock.calls.some(({ path, method }) => path === '/v1/models' && method === 'GET'));
   assert.deepEqual(external, []);
   assert.deepEqual(errors, []);

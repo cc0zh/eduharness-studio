@@ -6,43 +6,28 @@ export const modelMockList = [
   { id: 'loop/reasoner:v2', name: 'Loopback Reasoner' },
 ];
 
-function teacherOutput(status, afterStep, classroom) {
-  const card = `loopback-${afterStep + 1}`;
+function teacherOutput(status, classroom) {
   const measurementLesson = String(classroom?.topic ?? '').includes('温度测量');
-  const prompt = measurementLesson ? '报警后的概率应该先看哪一组？' : '两组合并后共有多少？';
-  const options = measurementLesson
-    ? [
-        { id: 'low', label: '分母只包含已经报警的样本' },
-        { id: 'high', label: '所有带标签的样本' },
-      ]
-    : [
-        { id: 'four', label: '4 个' },
-        { id: 'five', label: '5 个' },
-      ];
   return {
     diagnosis: {
       status,
-      summary: status === 'opening' ? '先预测合并后的数量。' : '未经历核验，不可宣告掌握。',
+      summary: status === 'opening' ? '先预测合并后的数量。' : '沿着学生的选择澄清推理。',
       strategy: '用已核对的算式构造直觉选项。',
     },
-    actions: [
+    panels: [
       {
-        type: 'board',
-        column: 1,
-        card_id: `${card}-board`,
         title: '先观察合并',
         content: '2 + 3 = ?',
-      },
-      { type: 'speak', text: '把两组物件合在一起，再数一数。' },
-      { type: 'highlight', card_id: `${card}-board`, target_text: '2 + 3', style: 'circle' },
-      {
-        type: 'ask',
-        card_id: `${card}-ask`,
-        mode: 'choice',
-        prompt,
-        options,
+        highlight: '2 + 3',
+        voiceover: '把两组物件合在一起，再数一数。',
       },
     ],
+    next_ask: measurementLesson
+      ? {
+          prompt: '报警后的概率应该先看哪一组？',
+          options: ['分母只包含已经报警的样本', '所有带标签的样本'],
+        }
+      : { prompt: '两组合并后共有多少？', options: ['4 个', '5 个'] },
   };
 }
 
@@ -81,7 +66,7 @@ function modelCourse() {
   };
 }
 
-function modelLesson(withGraph = false) {
+function modelLesson(graph = false) {
   const label = '分母只包含已经报警的样本';
   return {
     keypoints: [
@@ -109,41 +94,26 @@ function modelLesson(withGraph = false) {
         summary: '先圈定观测集合。',
         strategy: '从已经观测到的样本开始。',
       },
-      actions: [
+      panels: [
         {
-          type: withGraph ? 'graph' : 'board',
-          column: 1,
-          card_id: 'observed-sample',
-          ...(withGraph
+          title: graph ? '样本与阈值' : '已观测的样本',
+          content: '先只看已观测的样本，再判断读数代表什么。',
+          ...(graph
             ? {
-                title: '样本与阈值',
-                depth: 'intuition',
-                diagram_kind: 'distribution',
-                description: '用轴和阈值说明已报警样本的分布范围，不推算未知数值。',
+                diagram: {
+                  diagram_kind: 'distribution',
+                  description: '用轴和阈值说明已报警样本的分布范围，不推算未知数值。',
+                },
               }
             : {}),
-          content: '先只看已观测的样本，再判断读数代表什么。',
-        },
-        { type: 'speak', text: '一个读数足够说明真实规律吗？' },
-        withGraph
-          ? { type: 'speak', text: '先读图上的观测范围，再作判断。' }
-          : {
-              type: 'highlight',
-              card_id: 'observed-sample',
-              target_text: '已观测的样本',
-              style: 'circle',
-            },
-        {
-          type: 'ask',
-          card_id: 'observed-sample-ask',
-          mode: 'choice',
-          prompt: '报警后的概率应该先看哪一组？',
-          options: [
-            { id: 'low', label },
-            { id: 'high', label: '所有带标签的样本' },
-          ],
+          ...(!graph || graph === 'marked' ? { highlight: '已观测的样本' } : {}),
+          voiceover:
+            graph && graph !== 'marked'
+              ? '先读图上的观测范围，再作判断。'
+              : '一个读数足够说明真实规律吗？',
         },
       ],
+      next_ask: { prompt: '报警后的概率应该先看哪一组？', options: [label, '所有带标签的样本'] },
     },
   };
 }
@@ -156,17 +126,15 @@ function teacherAnswer(classroom) {
       summary: `按选项文字核对：${label}`,
       strategy: '沿着学生指出的样本范围继续推理。',
     },
-    actions: [
-      { type: 'board', column: 1, card_id: 'label-authority-board', content: label },
-      { type: 'speak', text: '你指出了这一组样本，我们据此继续核对。' },
-      { type: 'highlight', card_id: 'label-authority-board', target_text: '样本', style: 'circle' },
+    panels: [
       {
-        type: 'ask',
-        card_id: 'label-authority-ask',
-        mode: 'open',
-        prompt: '下一步应统计哪一部分？',
+        title: '选中的样本',
+        content: label,
+        highlight: '样本',
+        voiceover: '你指出了这一组样本，我们据此继续核对。',
       },
     ],
+    next_ask: { prompt: '下一步应统计哪一部分？' },
   };
 }
 
@@ -175,6 +143,7 @@ export async function startModelMock(
   { teacher = false, courses = true, unlockDelayMs = 0, graph = 'safe' } = {},
 ) {
   const calls = [];
+  let triedPrematureResolution = false;
   const mock = createServer(async (req, res) => {
     calls.push({ path: req.url, method: req.method, authorization: req.headers.authorization });
     switch (req.url) {
@@ -253,10 +222,6 @@ export async function startModelMock(
         const hasToolResult = body.messages.some(({ role }) => role === 'tool');
         const classroom = teacher ? teacherContext(body) : undefined;
         const prompt = body.messages.find(({ role }) => role === 'user')?.content;
-        const corrected = body.messages.some(
-          ({ role, content }) =>
-            role === 'user' && String(content).includes('上一份回合被护栏拦截'),
-        );
         const drawsGraph = typeof prompt === 'string' && prompt.includes('绘图任务');
         if (drawsGraph && graph === 'timeout')
           await new Promise((resolve) => setTimeout(resolve, 8_000));
@@ -287,7 +252,9 @@ export async function startModelMock(
           if (unlockDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, unlockDelayMs));
           functionCall = {
             name: 'emit_result',
-            arguments: JSON.stringify({ value: modelLesson(String(prompt).includes('三角形')) }),
+            arguments: JSON.stringify({
+              value: modelLesson(String(prompt).includes('三角形') && graph),
+            }),
           };
         } else if (
           teacher &&
@@ -302,28 +269,21 @@ export async function startModelMock(
           teacher &&
           classroom?.input?.kind === 'opening' &&
           hasCalcVerify &&
-          !hasToolResult &&
-          !corrected
+          !hasToolResult
         ) {
           functionCall = {
             name: 'calc_verify',
             arguments: JSON.stringify({ expression: '2 + 3' }),
           };
         } else if (teacher) {
-          functionCall = {
-            name: 'emit_result',
-            arguments: JSON.stringify({
-              value: teacherOutput(
-                classroom?.input?.kind === 'opening'
-                  ? 'opening'
-                  : corrected
-                    ? 'clarifying'
-                    : 'mastered',
-                Number(classroom?.afterStep ?? 0),
-                classroom,
-              ),
-            }),
-          };
+          const opening = classroom?.input?.kind === 'opening';
+          const value = teacherOutput(opening ? 'opening' : 'clarifying', classroom);
+          if (!opening && !triedPrematureResolution) {
+            // An ordinary choice answer is not a transfer check. Exercise the real phase schema.
+            value.resolution = { text: '提出了一个判断。', conclusion: '还不能据此过关。' };
+            triedPrematureResolution = true;
+          }
+          functionCall = { name: 'emit_result', arguments: JSON.stringify({ value }) };
         } else {
           functionCall = {
             name: 'emit_result',

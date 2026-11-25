@@ -28,12 +28,19 @@ import {
   normalizeBaseUrl,
 } from './model-configuration.js';
 import type { ModelCatalogEntry } from './model-protocol.js';
-import { type ModelGateway, ModelGenerationError } from './structured-model.js';
+import {
+  type ModelGateway,
+  ModelGenerationError,
+  maxStructuredAttempts,
+  structuredOutputTool as outputTool,
+  validModelRequestBudget,
+} from './structured-model.js';
 import {
   redactToolCallArguments,
   runStructuredModelLoop,
   type StructuredToolCall,
 } from './structured-model-loop.js';
+import { outputEchoesCredential } from './structured-model-output.js';
 
 export {
   type ModelGateway,
@@ -41,10 +48,6 @@ export {
   type StructuredModelRequest,
   type StructuredModelTool,
 } from './structured-model.js';
-
-const outputTool = 'emit_result';
-const maxAttempts = 2;
-const maxToolCallLimit = 2;
 
 export interface ModelGatewayOptions {
   provider?: string;
@@ -149,14 +152,14 @@ function createGateway(
     if (!provider) throw new ModelConfigError('invalid_model_config');
     return provider;
   }
-  async function select(): Promise<Selection | undefined> {
-    const fallback = await envSelection;
-    return byok ?? fallback;
+  async function select() {
+    const env = await envSelection;
+    return { selected: byok ?? env, env };
   }
 
   return {
     async getStatus() {
-      const selected = await select();
+      const { selected } = await select();
       return selected
         ? {
             mode: 'live',
@@ -206,7 +209,8 @@ function createGateway(
       timeoutMs = 30_000,
       signal,
       maxTokens = 2048,
-      attempts = maxAttempts,
+      attempts = maxStructuredAttempts,
+      normalizeOutput,
       tools = [],
       maxToolCalls: toolLimit = 0,
     }) {
@@ -215,18 +219,7 @@ function createGateway(
       const fail = (code: ModelGenerationError['code'], reasons: readonly string[] = []) =>
         new ModelGenerationError(code, elapsed(), reasons);
       if (
-        !Number.isSafeInteger(timeoutMs) ||
-        timeoutMs < 1 ||
-        timeoutMs > 60_000 ||
-        !Number.isSafeInteger(maxTokens) ||
-        maxTokens < 1 ||
-        (attempts !== 1 && attempts !== maxAttempts) ||
-        !Number.isSafeInteger(toolLimit) ||
-        toolLimit < 0 ||
-        toolLimit > maxToolCallLimit ||
-        (toolLimit > 0 && tools.length === 0) ||
-        tools.some(({ name }) => !name || name === outputTool) ||
-        new Set(tools.map(({ name }) => name)).size !== tools.length
+        !validModelRequestBudget({ timeoutMs, maxTokens, attempts, tools, maxToolCalls: toolLimit })
       ) {
         throw fail('model_invalid_options');
       }
@@ -243,7 +236,7 @@ function createGateway(
         }, timeoutMs);
       });
       try {
-        const selected = await Promise.race([select(), deadline]);
+        const { selected, env } = await Promise.race([select(), deadline]);
         if (!selected) throw fail('model_offline');
         const { model } = selected;
         const initialMessages: Message[] = [
@@ -256,6 +249,9 @@ function createGateway(
             tools,
             toolLimit,
             attempts,
+            normalizeOutput,
+            reflectsCredential: (value) =>
+              outputEchoesCredential(value, selected.apiKey, env?.apiKey),
             output: {
               name: outputTool,
               description: 'Return the structured result.',

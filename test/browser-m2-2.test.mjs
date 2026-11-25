@@ -35,6 +35,13 @@ async function handoff(page, question) {
   await page.locator(askCard).getByText(question, { exact: true }).waitFor();
 }
 
+async function stepToPanel(page, title) {
+  const panel = page.getByRole('heading', { name: title, exact: true });
+  for (let n = 0; n < 12 && !(await panel.isVisible()); n++) await step(page);
+  await panel.waitFor();
+  return panel;
+}
+
 async function customAnswer(page, text) {
   await page.getByRole('textbox', { name: '写下你的回答' }).fill(text);
   await page.getByRole('button', { name: '提交回答' }).click();
@@ -101,16 +108,26 @@ test('M2-2 Chromium faux: choice, transfer mastery, prerequisite restore, low ef
   await handoff(page, '七块积木两两配对，会剩下几块？');
   assert.equal(await page.locator('[data-completed-keypoint]').count(), 0);
   const transfer = await read(page, activePath);
+  const current = transfer.keypoints.find(({ status }) => status === 'active');
+  const following = transfer.keypoints.find(({ status }) => status === 'pending');
+  assert.ok(current && following);
   assert.equal(transfer.playedActions.at(-1).checkpoint, 'verify');
   assert.ok(
     transfer.records.some(({ kind, text }) => kind === 'answer' && text === '四块成两对，还剩一块'),
   );
   await customAnswer(page, '七块能配成三对，还剩下一块。');
   await handoff(page, '两组的配对结果有什么不同？');
-  await page.locator('[data-completed-keypoint="focus-1"]').waitFor();
+  await page.locator(`[data-completed-keypoint="${current.id}"]`).waitFor();
   const mastered = await read(page, activePath);
   const completion = mastered.playedActions.findIndex(({ type }) => type === 'keypoint_complete');
+  assert.ok(completion > 0);
+  assert.equal(mastered.playedActions[completion - 1].type, 'speak');
   assert.equal(mastered.playedActions[completion - 1].checkpoint, 'verify');
+  assert.equal(mastered.playedActions[completion].keypoint_id, current.id);
+  assert.equal(
+    mastered.playedActions[completion].summary,
+    '按两块一对分组后，还有一块找不到伙伴。',
+  );
   assert.equal(
     mastered.records.filter(
       ({ kind, text }) => kind === 'answer' && text === '七块能配成三对，还剩下一块。',
@@ -124,7 +141,7 @@ test('M2-2 Chromium faux: choice, transfer mastery, prerequisite restore, low ef
   const inserted = await read(page, activePath);
   assert.deepEqual(
     inserted.keypoints.map(({ id }) => id),
-    ['focus-1', 'pre-groups', 'focus-2'],
+    [current.id, 'pre-groups', following.id],
   );
   await page.reload();
   await page.locator(askCard).getByText('四块积木可以分成几对？', { exact: true }).waitFor();
@@ -163,20 +180,18 @@ test('M2-2 Chromium faux: choice, transfer mastery, prerequisite restore, low ef
   await queuedDrawer.getByRole('tab', { name: '公开对话投影与追踪' }).click();
   await queuedDrawer.getByText('待上屏的未验证标记').waitFor();
   await page.getByRole('switch', { name: 'Agent X-Ray' }).click();
-  for (
-    let n = 0;
-    n < 4 && !(await page.getByRole('heading', { name: '换个数继续观察' }).isVisible());
-    n += 1
-  )
-    await step(page);
+  await stepToPanel(page, '换个数继续观察');
   await page.locator('[data-unverified-keypoint="pre-groups"]').waitFor();
   assert.equal(await page.locator('[data-completed-keypoint="pre-groups"]').count(), 0);
   const played = Number(await page.locator(classroom).getAttribute('data-played-step'));
   const generation = Number(await page.locator(classroom).getAttribute('data-generation'));
   const xrayPath = `${url}/api/sessions/${restored.session_id}/xray`;
   const traceBeforeInterrupt = await read(page, xrayPath);
-  const cutIDs = traceBeforeInterrupt.queued.map(({ step_id }) => step_id);
-  assert.ok(cutIDs.length > 0);
+  const cut = traceBeforeInterrupt.queued;
+  const cutIDs = cut.map(({ step_id }) => step_id);
+  assert.ok(cut.some(({ type }) => type === 'board'));
+  assert.equal(await page.getByRole('heading', { name: '六块积木的另一种排法' }).count(), 0);
+  assert.equal(cut.at(-1).type, 'ask');
   await page.getByRole('textbox', { name: '打断插话' }).fill('换个角度接着讲。');
   await page.getByRole('button', { name: '插话', exact: true }).click();
   await page.waitForFunction(
@@ -189,8 +204,7 @@ test('M2-2 Chromium faux: choice, transfer mastery, prerequisite restore, low ef
   assert.equal(interruption.last_played_step_id, played);
   assert.equal(afterInterrupt.last_played_step_id, played);
   assert.deepEqual(interruption.truncated_step_ids, cutIDs);
-  await step(page);
-  const continuation = page.getByRole('heading', { name: '沿用桌上的积木' });
+  const continuation = await stepToPanel(page, '沿用桌上的积木');
   await continuation.scrollIntoViewIfNeeded();
   assert.ok(
     Number(await page.locator(classroom).getAttribute('data-played-step')) > Math.max(...cutIDs),
@@ -216,7 +230,9 @@ test('M2-2 Chromium faux: choice, transfer mastery, prerequisite restore, low ef
       ({ diagnosis, guardrails }) =>
         diagnosis?.status === 'mastered' &&
         guardrails.some(({ reasons }) =>
-          reasons.some((reason) => reason.includes('immediately before completion')),
+          reasons.some((reason) =>
+            reason.includes('$.resolution.conclusion: missing required field'),
+          ),
         ),
     ),
   );

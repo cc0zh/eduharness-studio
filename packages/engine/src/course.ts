@@ -6,22 +6,17 @@ import { LessonScriptSchema, validateLessonScript } from './lesson-playback.js';
 import type { CourseBlueprint, Keypoint, LessonRef } from './protocol.js';
 import { DepthTagSchema } from './protocol.js';
 import { type ModelGateway, ModelGenerationError } from './structured-model.js';
+import { compileTeacherTurn } from './teacher-compiler.js';
+import type { TeacherTurnContext } from './teacher-context.js';
 import {
   materializeTeacherGraph,
   modelGraphOptions,
   TeacherGraphEvidenceSchema,
-  teacherGraphInstruction,
 } from './teacher-graph.js';
-import {
-  guardTeacherTurn,
-  type TeacherTurnContext,
-  teacherTextLimits,
-} from './teacher-guardrails.js';
-import {
-  LessonBasisSchema,
-  TeacherDiagnosisSchema,
-  TeacherOpeningTurnSchema,
-} from './teacher-protocol.js';
+import { normalizeLessonOpening } from './teacher-normalize.js';
+import { openingTurnPolicy } from './teacher-policy.js';
+import { teacherSceneInstructions } from './teacher-prompt.js';
+import { LessonBasisSchema, TeacherDiagnosisSchema } from './teacher-protocol.js';
 
 const strict = { additionalProperties: false };
 const short = (maxLength: number) => Type.String({ minLength: 1, maxLength });
@@ -66,7 +61,7 @@ const LessonDraftSchema = Type.Object(
   {
     keypoints: Type.Array(KeypointDraftSchema, { minItems: 2, maxItems: 6 }),
     basis: Type.Optional(LessonBasisSchema),
-    opening: TeacherOpeningTurnSchema,
+    opening: openingTurnPolicy.schema,
   },
   strict,
 );
@@ -148,7 +143,6 @@ export function createCourseLessonPlanner(
 ) {
   return async function plan(input: CourseLessonInput) {
     const { course, lesson, previousKeypoints } = input;
-    const corrections: string[] = [];
     const guardrails: { attempt: number; reasons: string[] }[] = [];
     let durationMs = 0;
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -156,16 +150,13 @@ export function createCourseLessonPlanner(
       try {
         result = await gateway.generate({
           schema: LessonDraftSchema,
+          normalizeOutput: normalizeLessonOpening,
           maxTokens: 4096,
           attempts: 1,
           prompt: [
             'Prepare one concise, Chinese-language whiteboard lesson with no external search.',
-            'Return ONLY top-level keys keypoints (2–6 progressive items), optional basis, and opening. Inside opening, include ONLY diagnosis (status="opening", summary, strategy) and actions (4–8 unnumbered actions); omit unused optional fields and never add extra keys, null values, or step_id.',
-            'Opening contract (hard): actions must end with exactly one ordinary ask as the final beat (without checkpoint). Do not add another ask or any keypoint outcome before the student has answered.',
-            'Pedagogy & layout: never open with dry textbook definitions or "three elements" lists; open with a concrete failure case, counterintuitive conflict, or real problem. Use a clean left-to-right two-column layout (column 1 setup/tension -> column 2 mechanism/contrast table or diagram) instead of stacking every card into column 1.',
-            'Keep all board and graph content complete but ≤280 characters; title ≤48; formula ≤140; speak ≤140; ask prompt ≤140; choice labels ≤56. Give all board/graph/ask cards unique IDs. Highlight only a prior board/graph card, quoting text in its content.',
-            `Character budgets: ${JSON.stringify(teacherTextLimits)}`,
-            teacherGraphInstruction,
+            'Return ONLY top-level keys keypoints (2–6 progressive items), optional basis, and opening. The nested opening uses the following output contract:',
+            teacherSceneInstructions(openingTurnPolicy),
             `Course: ${JSON.stringify({
               title: course.title,
               topic: course.topic,
@@ -176,8 +167,8 @@ export function createCourseLessonPlanner(
             })}`,
             `Target lesson: ${JSON.stringify(lesson)}`,
             `Confirmed keypoints from preceding lessons: ${JSON.stringify(previousKeypoints.slice(-12))}`,
-            corrections.length
-              ? `Rewrite the complete lesson payload (keypoints, optional basis, and opening) and fix these previous guardrail reasons: ${JSON.stringify(corrections)}`
+            guardrails.length
+              ? 'The previous submission was invalid. Rewrite the complete lesson using only the declared contract.'
               : '',
           ]
             .filter(Boolean)
@@ -190,7 +181,6 @@ export function createCourseLessonPlanner(
           ? error.reasons.map((reason) => `model_invalid_output: ${reason}`)
           : ['emit a complete LessonDraft matching the declared schema'];
         guardrails.push({ attempt, reasons });
-        corrections.splice(0, corrections.length, ...reasons);
         continue;
       }
       durationMs += result.durationMs;
@@ -209,10 +199,9 @@ export function createCourseLessonPlanner(
         generation: 1,
         seed: `${course.id}:${lesson.id}`,
       };
-      const checked = guardTeacherTurn(opening, result.value.opening);
+      const checked = compileTeacherTurn(opening, result.value.opening);
       if (!checked.ok) {
         guardrails.push({ attempt, reasons: checked.reasons.slice(0, 20) });
-        corrections.splice(0, corrections.length, ...checked.reasons);
         continue;
       }
       const { actions, graph } = await materializeTeacherGraph(checked, graphOptions, true);
