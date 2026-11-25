@@ -5,9 +5,23 @@ import type { IntakeAnswers } from './intake.js';
 import { LessonScriptSchema, validateLessonScript } from './lesson-playback.js';
 import type { CourseBlueprint, Keypoint, LessonRef } from './protocol.js';
 import { DepthTagSchema } from './protocol.js';
-import type { ModelGateway } from './structured-model.js';
-import { guardTeacherTurn, type TeacherTurnContext } from './teacher-guardrails.js';
-import { LessonBasisSchema, TeacherTurnWithoutMasterySchema } from './teacher-protocol.js';
+import { type ModelGateway, ModelGenerationError } from './structured-model.js';
+import {
+  materializeTeacherGraph,
+  modelGraphOptions,
+  TeacherGraphEvidenceSchema,
+  teacherGraphInstruction,
+} from './teacher-graph.js';
+import {
+  guardTeacherTurn,
+  type TeacherTurnContext,
+  teacherTextLimits,
+} from './teacher-guardrails.js';
+import {
+  LessonBasisSchema,
+  TeacherDiagnosisSchema,
+  TeacherTurnWithoutMasterySchema,
+} from './teacher-protocol.js';
 
 const strict = { additionalProperties: false };
 const short = (maxLength: number) => Type.String({ minLength: 1, maxLength });
@@ -57,10 +71,31 @@ const LessonDraftSchema = Type.Object(
   strict,
 );
 
+const LessonOpeningEvidenceSchema = Type.Object(
+  {
+    diagnosis: TeacherDiagnosisSchema,
+    durationMs: Type.Number({ minimum: 0 }),
+    guardrails: Type.Array(
+      Type.Object(
+        {
+          attempt: Type.Integer({ minimum: 1, maximum: 3 }),
+          reasons: Type.Array(short(220), { minItems: 1, maxItems: 20 }),
+        },
+        strict,
+      ),
+      { maxItems: 2 },
+    ),
+    graph: Type.Optional(TeacherGraphEvidenceSchema),
+  },
+  strict,
+);
+export type LessonOpeningEvidence = Static<typeof LessonOpeningEvidenceSchema>;
+
 export const LessonMaterialSchema = Type.Object(
   {
     script: LessonScriptSchema,
     basis: Type.Optional(LessonBasisSchema),
+    openingEvidence: Type.Optional(LessonOpeningEvidenceSchema),
   },
   strict,
 );
@@ -96,54 +131,89 @@ type CourseLessonInput = {
   previousKeypoints: readonly Keypoint[];
 };
 
-export function createCourseLessonPlanner(gateway: Pick<ModelGateway, 'generate'>) {
+export function createCourseLessonPlanner(
+  gateway: Pick<ModelGateway, 'generate'>,
+  graphOptions = modelGraphOptions(gateway),
+) {
   return async function plan(input: CourseLessonInput) {
     const { course, lesson, previousKeypoints } = input;
-    const result = await gateway.generate({
-      schema: LessonDraftSchema,
-      maxTokens: 4096,
-      prompt: [
-        'Prepare one concise, Chinese-language whiteboard lesson with no external search.',
-        'Write 2–6 progressive keypoints, an optional factual LessonBasis, and an opening TeacherTurn that ends with exactly one ordinary ask.',
-        'The opening diagnosis must be opening. Use 4–8 playable actions, avoid revealing the answer, and never mark a keypoint completed.',
-        `Course: ${JSON.stringify({
-          title: course.title,
-          topic: course.topic,
-          units: course.units.map(({ title, lessons }) => ({
-            title,
-            lessons: lessons.map(({ title, summary }) => ({ title, summary })),
-          })),
-        })}`,
-        `Target lesson: ${JSON.stringify(lesson)}`,
-        `Confirmed keypoints from preceding lessons: ${JSON.stringify(previousKeypoints.slice(-12))}`,
-      ].join('\n'),
-    });
-    const keypoints = result.value.keypoints.map((point, index) => ({
-      ...point,
-      status: index === 0 ? ('active' as const) : ('pending' as const),
-    }));
-    const opening: TeacherTurnContext = {
-      topic: `${course.topic}：${lesson.title}`,
-      keypoints,
-      basis: result.value.basis,
-      state: 'intake',
-      played: [],
-      input: { kind: 'opening' },
-      progress: { highWater: 0, insertedCount: 0, lowEffortStreak: 0, truncatedCardIds: [] },
-      generation: 1,
-      seed: `${course.id}:${lesson.id}`,
-    };
-    const checked = guardTeacherTurn(opening, result.value.opening);
-    if (
-      !checked.ok ||
-      !validateLessonScript({ keypoints: checked.keypoints, actions: checked.actions })
-    ) {
-      throw new Error('course_lesson_invalid_output');
+    const corrections: string[] = [];
+    const guardrails: { attempt: number; reasons: string[] }[] = [];
+    let durationMs = 0;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      let result: { value: Static<typeof LessonDraftSchema>; durationMs: number };
+      try {
+        result = await gateway.generate({
+          schema: LessonDraftSchema,
+          maxTokens: 4096,
+          attempts: 1,
+          prompt: [
+            'Prepare one concise, Chinese-language whiteboard lesson with no external search.',
+            'Write 2–6 progressive keypoints and an optional factual LessonBasis.',
+            'Opening contract: diagnosis.status=opening; 4–8 actions; one ordinary ask as the sole final action; no keypoint outcome or verify checkpoint. Do not include step_id.',
+            'Keep all board and graph content complete but ≤180 characters; title ≤48; formula ≤140; speak ≤140; ask prompt ≤140; choice labels ≤56. Give all board/graph/ask cards unique IDs. Highlight only a prior board/graph card, quoting text in its content.',
+            `Character budgets: ${JSON.stringify(teacherTextLimits)}`,
+            teacherGraphInstruction,
+            `Course: ${JSON.stringify({
+              title: course.title,
+              topic: course.topic,
+              units: course.units.map(({ title, lessons }) => ({
+                title,
+                lessons: lessons.map(({ title, summary }) => ({ title, summary })),
+              })),
+            })}`,
+            `Target lesson: ${JSON.stringify(lesson)}`,
+            `Confirmed keypoints from preceding lessons: ${JSON.stringify(previousKeypoints.slice(-12))}`,
+            corrections.length
+              ? `Rewrite the complete opening and fix these previous guardrail reasons: ${JSON.stringify(corrections)}`
+              : '',
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        });
+      } catch (error) {
+        if (!(error instanceof ModelGenerationError) || error.code !== 'model_invalid_output')
+          throw error;
+        const reasons = ['emit a complete LessonDraft matching the declared schema'];
+        guardrails.push({ attempt, reasons });
+        corrections.splice(0, corrections.length, ...reasons);
+        continue;
+      }
+      durationMs += result.durationMs;
+      const keypoints = result.value.keypoints.map((point, index) => ({
+        ...point,
+        status: index === 0 ? ('active' as const) : ('pending' as const),
+      }));
+      const opening: TeacherTurnContext = {
+        topic: `${course.topic}：${lesson.title}`,
+        keypoints,
+        basis: result.value.basis,
+        state: 'intake',
+        played: [],
+        input: { kind: 'opening' },
+        progress: { highWater: 0, insertedCount: 0, lowEffortStreak: 0, truncatedCardIds: [] },
+        generation: 1,
+        seed: `${course.id}:${lesson.id}`,
+      };
+      const checked = guardTeacherTurn(opening, result.value.opening);
+      if (!checked.ok) {
+        guardrails.push({ attempt, reasons: checked.reasons.slice(0, 20) });
+        corrections.splice(0, corrections.length, ...checked.reasons);
+        continue;
+      }
+      const { actions, graph } = await materializeTeacherGraph(checked, graphOptions, true);
+      const material: LessonMaterial = {
+        script: { keypoints: checked.keypoints, actions },
+        ...(result.value.basis ? { basis: result.value.basis } : {}),
+        openingEvidence: {
+          diagnosis: result.value.opening.diagnosis,
+          durationMs,
+          guardrails,
+          ...(graph ? { graph } : {}),
+        },
+      };
+      return { material, durationMs };
     }
-    const material: LessonMaterial = {
-      script: { keypoints: checked.keypoints, actions: checked.actions },
-      ...(result.value.basis ? { basis: result.value.basis } : {}),
-    };
-    return { material, durationMs: result.durationMs };
+    throw new Error('course_lesson_invalid_output');
   };
 }

@@ -17,7 +17,11 @@ export function loadStudioEnvironment(ambient: Environment = process.env): Envir
   }
 }
 
-export function configureModels(env: Environment, makeGateway = createModelGateway) {
+export function configureModels(
+  env: Environment,
+  makeGateway = createModelGateway,
+  fetchRequest: typeof globalThis.fetch = globalThis.fetch,
+) {
   // Native clients can log response bodies before the gateway sees a sanitized error.
   process.env.OPENAI_LOG = 'off';
   process.env.ANTHROPIC_LOG = 'off';
@@ -38,7 +42,7 @@ export function configureModels(env: Environment, makeGateway = createModelGatew
       }
     }
     const request = { ...init, dispatcher };
-    return globalThis.fetch(input, request);
+    return fetchRequest(input, request);
   };
   const gateway = makeGateway({
     provider: env.STUDIO_MODEL_PROVIDER?.trim(),

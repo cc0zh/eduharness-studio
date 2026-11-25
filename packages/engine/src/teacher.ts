@@ -2,6 +2,7 @@ import type { PublicDialogueTurn } from './projection.js';
 import type { LessonTraceSpan } from './session-protocol.js';
 import type { StructuredModelTool } from './structured-model.js';
 import { type ModelGateway, ModelGenerationError } from './structured-model.js';
+import { materializeTeacherGraph, modelGraphOptions, teacherGraphSpan } from './teacher-graph.js';
 import {
   guardTeacherTurn,
   type TeacherTurnContext,
@@ -15,6 +16,7 @@ import {
 } from './teacher-protocol.js';
 import { calcVerifyTeacherTool, runTeacherTool, type TeacherTool } from './teacher-tools.js';
 
+export { teacherGraphSpan } from './teacher-graph.js';
 export type { TeacherInput, TeacherProgress, TeacherTurnContext } from './teacher-guardrails.js';
 export { effortSignal } from './teacher-guardrails.js';
 export { type TeacherTurnOutput, TeacherTurnOutputSchema } from './teacher-protocol.js';
@@ -26,6 +28,7 @@ const maxToolSteps = 2;
 export function createTeacherPlanner(
   gateway: Pick<ModelGateway, 'generate'>,
   tools: readonly TeacherTool[] = [calcVerifyTeacherTool],
+  graphOptions = modelGraphOptions(gateway),
 ) {
   return async function plan(context: TeacherTurnContext, dialogue: readonly PublicDialogueTurn[]) {
     const anchor = { generation: context.generation, step_id: context.played.at(-1)?.step_id ?? 0 };
@@ -39,6 +42,7 @@ export function createTeacherPlanner(
     };
     const observations: { tool: string; result: string }[] = [];
     let toolCallsUsed = 0;
+    let toolDurationMs = 0;
     let reasons: string[] = [];
     const { effort, canAssessMastery } = teacherAnswerEvidence(context);
     const schema = canAssessMastery ? TeacherTurnOutputSchema : TeacherTurnWithoutMasterySchema;
@@ -56,6 +60,7 @@ export function createTeacherPlanner(
               toolCallsUsed++;
               const result = await runTeacherTool(tool, input, anchor);
               spans.push(result.span);
+              toolDurationMs += result.span.durationMs;
               const observation =
                 result.observation ?? JSON.stringify({ error: result.error ?? 'tool failed' });
               observations.push({ tool: tool.name, result: observation });
@@ -63,6 +68,7 @@ export function createTeacherPlanner(
             },
           }))
         : [];
+      const toolsBeforeAttempt = toolDurationMs;
       try {
         const { value, durationMs } = await gateway.generate({
           schema,
@@ -72,11 +78,26 @@ export function createTeacherPlanner(
           tools: modelTools,
           maxToolCalls: toolBudget,
         });
-        spans.push({ ...anchor, kind: 'model', name: 'teacher_turn', durationMs });
+        spans.push({
+          ...anchor,
+          kind: 'model',
+          name: 'teacher_turn',
+          durationMs: Math.max(0, durationMs - (toolDurationMs - toolsBeforeAttempt)),
+        });
         const checked = guardTeacherTurn(context, value);
         if (checked.ok) {
+          const { actions, graph } = await materializeTeacherGraph(
+            checked,
+            graphOptions,
+            context.input.kind === 'opening',
+          );
+          if (graph) spans.push(teacherGraphSpan(anchor.generation, graph));
           return {
-            ...checked,
+            ok: true as const,
+            actions,
+            keypoints: checked.keypoints,
+            initialState: checked.initialState,
+            progress: checked.progress,
             trace: { ...trace, ...checked.trace, outcome: 'accepted' as const },
             spans,
           };
@@ -88,7 +109,10 @@ export function createTeacherPlanner(
           ...anchor,
           kind: 'model',
           name: 'teacher_turn',
-          durationMs: modelError?.durationMs ?? 0,
+          durationMs: Math.max(
+            0,
+            (modelError?.durationMs ?? 0) - (toolDurationMs - toolsBeforeAttempt),
+          ),
         });
         if (modelError?.code !== 'model_invalid_output') {
           guardrails.push({ attempt, reasons: [modelError?.code ?? 'model_request_failed'] });

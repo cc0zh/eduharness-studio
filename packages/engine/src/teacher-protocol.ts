@@ -16,7 +16,7 @@ const strict = { additionalProperties: false };
 const short = (maxLength: number) => Type.String({ minLength: 1, maxLength });
 const draft = <P extends TProperties>(action: TObject<P>) => Type.Omit(action, ['step_id'], strict);
 
-const DiagnosisSchema = Type.Object(
+export const TeacherDiagnosisSchema = Type.Object(
   {
     status: Type.Union([
       Type.Literal('opening'),
@@ -43,8 +43,26 @@ const InsertKeypointSchema = Type.Object(
   strict,
 );
 
+// A request, not a playable graph. It carries complete alternative boardwork, never markup.
+export const TeacherGraphDraftSchema = Type.Object(
+  {
+    ...Type.Omit(BoardActionSchema, ['step_id', 'title', 'type']).properties,
+    type: Type.Literal('graph'),
+    title: short(48),
+    diagram_kind: Type.Union([
+      Type.Literal('geometry'),
+      Type.Literal('structure'),
+      Type.Literal('distribution'),
+    ]),
+    description: short(240),
+  },
+  strict,
+);
+export type TeacherGraphDraft = Static<typeof TeacherGraphDraftSchema>;
+
 const commonDrafts = [
   draft(BoardActionSchema),
+  TeacherGraphDraftSchema,
   draft(NewColumnActionSchema),
   draft(NewPageActionSchema),
   draft(HighlightActionSchema),
@@ -56,7 +74,7 @@ const commonDrafts = [
 function turnSchema<T extends TSchema>(action: T) {
   return Type.Object(
     {
-      diagnosis: DiagnosisSchema,
+      diagnosis: TeacherDiagnosisSchema,
       insert_keypoint: Type.Optional(InsertKeypointSchema),
       actions: Type.Array(action, { minItems: 4, maxItems: 8 }),
     },
@@ -73,7 +91,7 @@ export const TeacherTurnOutputSchema = turnSchema(
 );
 
 export type TeacherTurnOutput = Static<typeof TeacherTurnOutputSchema>;
-export type TeacherDiagnosis = Static<typeof DiagnosisSchema>;
+export type TeacherDiagnosis = Static<typeof TeacherDiagnosisSchema>;
 
 const basisText = Type.String({ minLength: 1, maxLength: 400 });
 export const LessonBasisSchema = Type.Object(

@@ -99,6 +99,7 @@ export function createCourseStore({ db }: StudioDatabase) {
       return material;
     },
     unlock(courseId: string, lessonId: string, material: LessonMaterial) {
+      if (!validateLessonMaterial(material)) throw new Error('invalid_lesson_material');
       return transaction(() => {
         const blueprint = this.get(courseId);
         const lesson = blueprint && lessonAt(blueprint, lessonId);

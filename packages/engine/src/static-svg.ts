@@ -47,7 +47,7 @@ function numberList(value: string) {
   return parts.every(isNumber) ? parts.map(Number) : undefined;
 }
 
-function validAttribute(name: string, value: string, root: boolean) {
+function validAttribute(name: string, value: string, root: boolean, palette?: ReadonlySet<string>) {
   if (geometry.has(name)) return isNumber(value);
   switch (name) {
     case 'xmlns':
@@ -59,6 +59,7 @@ function validAttribute(name: string, value: string, root: boolean) {
     case 'fill':
     case 'stroke':
       // Plain colors only: no CSS function (including url()), variable, or declaration.
+      if (palette) return value === 'none' || palette.has(value.toUpperCase());
       return /^(?:[a-zA-Z]+|#[\da-fA-F]{3,4}|#[\da-fA-F]{6}|#[\da-fA-F]{8})$/.test(value);
     case 'd':
       return /^[Mm][\d.,+eE \t\r\nMmZzLlHhVvCcSsQqTtAa-]*$/.test(value);
@@ -78,13 +79,15 @@ function validAttribute(name: string, value: string, root: boolean) {
   }
 }
 
-function safeAttributes(source: string, root: boolean) {
+function safeAttributes(source: string, root: boolean, palette?: ReadonlySet<string>) {
   const attribute = /[ \t\r\n]+([a-zA-Z][\w-]*)[ \t\r\n]*=[ \t\r\n]*(?:"([^"<>&]*)"|'([^'<>&]*)')/y;
   const seen = new Set<string>();
   let end = 0;
   for (let match = attribute.exec(source); match; match = attribute.exec(source)) {
     const [, name, doubleQuoted, singleQuoted] = match;
-    if (seen.has(name) || !validAttribute(name, doubleQuoted ?? singleQuoted, root)) return false;
+    if (seen.has(name) || !validAttribute(name, doubleQuoted ?? singleQuoted, root, palette)) {
+      return false;
+    }
     seen.add(name);
     end = attribute.lastIndex;
   }
@@ -102,7 +105,7 @@ function safeCharacters(source: string) {
   return true;
 }
 
-export function sanitizeSvg(markup: string): string | undefined {
+export function sanitizeSvg(markup: string, palette?: ReadonlySet<string>): string | undefined {
   if (markup.length > 32_000) return undefined;
   const source = markup.trim();
   if (!safeCharacters(source)) return undefined;
@@ -127,7 +130,7 @@ export function sanitizeSvg(markup: string): string | undefined {
       if (parent ? !containers.has(parent) || !shapes.has(tag) : hasRoot || tag !== 'svg') {
         return undefined;
       }
-      if (stack.length >= 16 || !safeAttributes(attrs, !parent)) return undefined;
+      if (stack.length >= 16 || !safeAttributes(attrs, !parent, palette)) return undefined;
       hasRoot = true;
       if (!selfClosing) stack.push(tag);
     }

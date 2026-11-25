@@ -81,7 +81,7 @@ function modelCourse() {
   };
 }
 
-function modelLesson() {
+function modelLesson(withGraph = false) {
   const label = '分母只包含已经报警的样本';
   return {
     keypoints: [
@@ -111,18 +111,28 @@ function modelLesson() {
       },
       actions: [
         {
-          type: 'board',
+          type: withGraph ? 'graph' : 'board',
           column: 1,
           card_id: 'observed-sample',
+          ...(withGraph
+            ? {
+                title: '样本与阈值',
+                depth: 'intuition',
+                diagram_kind: 'distribution',
+                description: '用轴和阈值说明已报警样本的分布范围，不推算未知数值。',
+              }
+            : {}),
           content: '先只看已观测的样本，再判断读数代表什么。',
         },
         { type: 'speak', text: '一个读数足够说明真实规律吗？' },
-        {
-          type: 'highlight',
-          card_id: 'observed-sample',
-          target_text: '已观测的样本',
-          style: 'circle',
-        },
+        withGraph
+          ? { type: 'speak', text: '先读图上的观测范围，再作判断。' }
+          : {
+              type: 'highlight',
+              card_id: 'observed-sample',
+              target_text: '已观测的样本',
+              style: 'circle',
+            },
         {
           type: 'ask',
           card_id: 'observed-sample-ask',
@@ -162,7 +172,7 @@ function teacherAnswer(classroom) {
 
 export async function startModelMock(
   t,
-  { teacher = false, courses = true, unlockDelayMs = 0 } = {},
+  { teacher = false, courses = true, unlockDelayMs = 0, graph = 'safe' } = {},
 ) {
   const calls = [];
   const mock = createServer(async (req, res) => {
@@ -247,8 +257,20 @@ export async function startModelMock(
           ({ role, content }) =>
             role === 'user' && String(content).includes('上一份回合被护栏拦截'),
         );
+        const drawsGraph = typeof prompt === 'string' && prompt.includes('绘图任务');
+        if (drawsGraph && graph === 'timeout')
+          await new Promise((resolve) => setTimeout(resolve, 8_000));
+        const graphMarkup =
+          graph === 'malicious'
+            ? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60" onload="alert(1)"><script/></svg>'
+            : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60" fill="#1A1917"><rect width="100" height="60" fill="#F6F3EC"/><path d="M10 50L90 10" stroke="#A84428" stroke-width="2"/><text x="10" y="55" fill="#4D4943" font-family="sans-serif" font-size="9">样本范围</text></svg>';
         let functionCall;
-        if (
+        if (drawsGraph) {
+          functionCall = {
+            name: 'emit_result',
+            arguments: JSON.stringify({ value: { svg: graphMarkup } }),
+          };
+        } else if (
           courses &&
           typeof prompt === 'string' &&
           prompt.includes('Create a specific, concise')
@@ -265,7 +287,7 @@ export async function startModelMock(
           if (unlockDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, unlockDelayMs));
           functionCall = {
             name: 'emit_result',
-            arguments: JSON.stringify({ value: modelLesson() }),
+            arguments: JSON.stringify({ value: modelLesson(String(prompt).includes('三角形')) }),
           };
         } else if (
           teacher &&

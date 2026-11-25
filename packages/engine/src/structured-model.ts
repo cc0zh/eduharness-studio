@@ -5,6 +5,7 @@ export interface StructuredModelRequest<S extends TSchema> {
   schema: S;
   prompt: string;
   timeoutMs?: number;
+  signal?: AbortSignal;
   maxTokens?: number;
   /** A caller with its own correction loop can take ownership of retries. */
   attempts?: 1 | 2;

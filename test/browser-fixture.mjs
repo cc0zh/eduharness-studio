@@ -188,7 +188,10 @@ async function freePorts(count) {
   }
 }
 
-export async function startBrowserFixture(t, { useNpmDev, serverEntry, env: overrides = {} } = {}) {
+export async function startBrowserFixture(
+  t,
+  { useNpmDev, serverEntry, env: overrides = {}, webEnvironment } = {},
+) {
   const directory = mkdtempSync(join(tmpdir(), 'eduharness-browser-'));
   const database = join(directory, 'studio.sqlite');
   const nodes = [];
@@ -300,8 +303,15 @@ export async function startBrowserFixture(t, { useNpmDev, serverEntry, env: over
     const [allocated] = await freePorts(1);
     ports.add(allocated);
     signal.throwIfAborted();
+    const webEnv = webEnvironment
+      ? {
+          ...offlineServerEnv(join(directory, '.env')),
+          ...webEnvironment,
+          STUDIO_DB_PATH: database,
+        }
+      : env;
     const web = startNode(['node_modules/vite/bin/vite.js', 'apps/web'], {
-      ...env,
+      ...webEnv,
       PORT: String(apiPort),
       WEB_PORT: String(allocated),
     });

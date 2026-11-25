@@ -96,6 +96,7 @@ export function createLessonRoutes(
         live,
         preplanned: Boolean(material),
         basis: material?.basis,
+        openingEvidence: material?.openingEvidence,
       });
       return 'error' in started
         ? c.json(started, writeStatus(started.error))

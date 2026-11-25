@@ -1,6 +1,7 @@
 import { projectKeypointProgress, validateLessonScript } from './lesson-playback.js';
 import type { Action, Keypoint } from './protocol.js';
 import { stateAfterBeat, type TeachingState } from './state.js';
+import { graphFallbackBoard, type TeacherGraphDraft } from './teacher-graph-draft.js';
 import type { LessonBasis, TeacherTurnOutput, TeacherTurnTrace } from './teacher-protocol.js';
 
 export type TeacherInput =
@@ -96,15 +97,13 @@ export const teacherTextLimits = {
   summary: 140,
 } as const;
 
-// Explicit answer disclosures can be blocked mechanically. The opening prompt also
-// requires genuine scaffolding, which cannot be inferred from arbitrary prose alone.
-const openingReveal =
+export const openingReveal =
   /(?:正确)?(?:答案|结果|选项)\s*(?:是|为|[:：])|\b(?:the |correct |final )?answer\s*(?:is\b|[:=])/i;
 
 function textProblems(draft: TeacherTurnOutput['actions'][number], opening: boolean) {
   const limits = teacherTextLimits;
   const fields: { name: string; value: string | undefined; max: number }[] = [];
-  if (draft.type === 'board') {
+  if (draft.type === 'board' || draft.type === 'graph') {
     fields.push(
       { name: 'content', value: draft.content, max: limits.board },
       { name: 'title', value: draft.title, max: limits.title },
@@ -149,7 +148,7 @@ function actionProblems(context: TeacherTurnContext, output: TeacherTurnOutput):
     if (action.type === 'new_page') pages.add(action.page_id);
     if (action.type === 'ask' || action.type === 'board' || action.type === 'graph')
       cards.add(action.card_id);
-    if (action.type === 'board' || action.type === 'graph') board.add(action.card_id);
+    if (action.type === 'board') board.add(action.card_id);
   }
   return output.actions.flatMap((draft, index) => {
     const errors = textProblems(draft, context.input.kind === 'opening');
@@ -160,14 +159,14 @@ function actionProblems(context: TeacherTurnContext, output: TeacherTurnOutput):
     if (draft.type === 'highlight' && !board.has(draft.card_id)) {
       errors.push('highlight must target an acknowledged or earlier in-turn board card');
     }
-    if (draft.type === 'board' || draft.type === 'ask') {
+    if (draft.type === 'board' || draft.type === 'ask' || draft.type === 'graph') {
       if (cards.has(draft.card_id)) {
         errors.push(
           `${draft.type}.card_id must be new and distinct from all board and ask cards, including cards from a truncated beat`,
         );
       }
       cards.add(draft.card_id);
-      if (draft.type === 'board') board.add(draft.card_id);
+      if (draft.type === 'board' || draft.type === 'graph') board.add(draft.card_id);
     }
     if (draft.type === 'ask' && draft.mode === 'choice') {
       const options = draft.options ?? [];
@@ -200,6 +199,10 @@ export function guardTeacherTurn(context: TeacherTurnContext, output: TeacherTur
   const { ask: answeredAsk, effort: signal, canAssessMastery } = teacherAnswerEvidence(context);
   const lowEffort = diagnosis.status === 'low_effort';
   const skip = signal === 'skip' || (lowEffort && progress.lowEffortStreak > 0);
+  const graphs = drafts.filter((draft) => draft.type === 'graph');
+  if (graphs.length > 1 || (graphs.length && (signal || lowEffort))) {
+    reasons.push('use at most one optional graph per turn, and none for low_effort');
+  }
 
   if (current?.status !== 'active') reasons.push('no active keypoint remains');
   if (opening !== (diagnosis.status === 'opening'))
@@ -297,8 +300,13 @@ export function guardTeacherTurn(context: TeacherTurnContext, output: TeacherTur
   const highWater = Math.max(progress.highWater, lastPlayed?.step_id ?? 0);
   const initialState: TeachingState =
     outcome?.type === 'keypoint_complete' ? 'handoff' : 'diagnose';
+  let illustration: { index: number; request: TeacherGraphDraft } | undefined;
   const actions = drafts.map((draft, index): Action => {
     const step_id = highWater + index + 1;
+    if (draft.type === 'graph') {
+      illustration = { index, request: draft };
+      return graphFallbackBoard(draft, step_id);
+    }
     return draft.type === 'ask' && draft.mode === 'choice' && draft.options
       ? {
           ...draft,
@@ -338,6 +346,7 @@ export function guardTeacherTurn(context: TeacherTurnContext, output: TeacherTur
   return {
     ok: true as const,
     actions,
+    illustration,
     keypoints,
     initialState,
     trace,

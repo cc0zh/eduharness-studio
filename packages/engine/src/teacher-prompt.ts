@@ -1,5 +1,6 @@
 import { projectKeypointProgress } from './lesson-playback.js';
 import type { PublicDialogueTurn } from './projection.js';
+import { teacherGraphInstruction } from './teacher-graph.js';
 import {
   type TeacherTurnContext,
   teacherAnswerEvidence,
@@ -48,6 +49,10 @@ export function teacherPrompt(
         const { card_id, title, content, formula, step_id } = action;
         return [{ step_id, card_id, title, content, formula }];
       }
+      if (action.type === 'graph') {
+        const { card_id, title, formula, step_id } = action;
+        return [{ step_id, card_id, title, content: '已展示示意图', formula }];
+      }
       return [];
     })
     .slice(-12);
@@ -78,6 +83,7 @@ export function teacherPrompt(
       '。',
     `新建 board、ask 的 card_id 各不相同，且不能复用已播或被截断的卡片 ID。用本轮前缀，例如 board.card_id="${idPrefix}-b1"、ask.card_id="${idPrefix}-q1"；新页用 page_id="${idPrefix}-p1"。highlight 只引用已上屏或本轮前面创建的 board.card_id，target_text 原样摘自该板书内容。数学公式放在 board.formula，填不带 $ 定界符的 LaTeX。`,
     '用具体问题自然交权。除最后一个要点的结课回合外，末拍必须是 ask；回合中间不能有 ask。',
+    !effort && teacherGraphInstruction,
     '初次诊断优先 choice。选项长度和口吻接近，干扰项对应真实误解，不在选项中提示正确理由。',
     !effort && '非敷衍的诊断题可留一个表达拿不准的选项。',
     !effort &&

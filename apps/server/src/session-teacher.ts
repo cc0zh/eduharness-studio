@@ -15,7 +15,11 @@ export type TeacherOperationLock = { scope: string; token: string };
 
 export const teacherFailed = { error: 'teacher_turn_failed' } as const;
 
-export function saveTeacherTrace(store: Store, id: string, plan: TeacherPlan) {
+export function saveTeacherTrace(
+  store: Store,
+  id: string,
+  plan: Pick<TeacherPlan, 'trace' | 'spans'>,
+) {
   store.append(id, 'teacher-turn', plan.trace);
   for (const span of plan.spans) store.append(id, 'trace', span);
 }

@@ -6,10 +6,12 @@ import {
   type TeachingTransition,
   validateLessonScript,
 } from '@eduharness-studio/engine';
-import type {
-  TeacherPlan,
-  TeacherPlanner,
-  TeacherProgress,
+import type { LessonOpeningEvidence } from '@eduharness-studio/engine/course';
+import {
+  type TeacherPlan,
+  type TeacherPlanner,
+  type TeacherProgress,
+  teacherGraphSpan,
 } from '@eduharness-studio/engine/teacher';
 import type { SessionCursor } from './session-cursor.js';
 import type { StoredSession, sessionDatabase } from './session-db.js';
@@ -30,6 +32,7 @@ type StartOptions = {
   live: boolean;
   preplanned?: boolean;
   basis?: LessonBasis;
+  openingEvidence?: LessonOpeningEvidence;
 };
 
 type Started = { created: boolean; snapshot: SessionSnapshot };
@@ -147,7 +150,17 @@ export function createSessionOpening(
       } satisfies TeachingTransition);
       const snapshot = cursor.claim(session);
       if (plan) saveTeacherTrace(store, id, plan);
-      else if (!preplanned) traceOffline(session, 'lesson_script', offlineDuration);
+      else if (live && options.openingEvidence) {
+        const { diagnosis, durationMs, guardrails, graph } = options.openingEvidence;
+        const anchor = { generation: snapshot.generation, step_id: 0 };
+        saveTeacherTrace(store, id, {
+          trace: { ...anchor, trigger: 'opening', diagnosis, guardrails, outcome: 'accepted' },
+          spans: [
+            { ...anchor, kind: 'model', name: 'lesson_opening', durationMs },
+            ...(graph ? [teacherGraphSpan(anchor.generation, graph)] : []),
+          ],
+        });
+      } else if (!preplanned) traceOffline(session, 'lesson_script', offlineDuration);
       return { created: true, snapshot };
     });
   }

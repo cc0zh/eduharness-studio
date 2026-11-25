@@ -4,13 +4,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type TestContext, test } from 'node:test';
 import { setImmediate as nextTurn } from 'node:timers/promises';
-import { demoCourses, offlineLesson } from '@eduharness-studio/engine';
+import { type CourseBlueprint, demoCourses, offlineLesson } from '@eduharness-studio/engine';
+import type { LessonMaterial } from '@eduharness-studio/engine/course';
 import {
   createFauxModelGateway,
   fauxAssistantMessage,
   fauxToolCall,
 } from '@eduharness-studio/engine/models';
 import { createServerApp } from '../apps/server/src/app.js';
+import { createCourseStore } from '../apps/server/src/course-store.js';
 import { openStudioDatabase } from '../apps/server/src/db.js';
 
 const plan = {
@@ -324,4 +326,53 @@ test('duplicate model keypoint IDs cannot unlock or persist a broken lesson', as
     true,
   );
   assert.equal(database.db.prepare('SELECT COUNT(*) AS count FROM course_lessons').get()?.count, 0);
+});
+
+test('course store rejects invalid material before writing it or marking the lesson ready', (t) => {
+  const { database } = fixture(t);
+  const store = createCourseStore(database);
+  const blueprint: CourseBlueprint = {
+    id: 'course-invalid-material',
+    title: '基数率',
+    topic: '基数率',
+    units: [
+      {
+        id: 'unit-1',
+        title: '条件概率',
+        lessons: [
+          {
+            id: 'lesson-ready',
+            title: '观测',
+            summary: '观测样本。',
+            depth: 'intuition',
+            status: 'ready',
+          },
+          {
+            id: 'lesson-locked',
+            title: '阳性预测值',
+            summary: '分析阳性样本。',
+            depth: 'application',
+            status: 'locked',
+          },
+        ],
+      },
+    ],
+  };
+  store.add(blueprint);
+  const invalid = {
+    script: offlineLesson(blueprint, blueprint.units[0].lessons[0]),
+    openingEvidence: {
+      diagnosis: { status: 'opening', summary: '开始', strategy: '观察' },
+      durationMs: 1,
+      guardrails: [{ attempt: 1, reasons: Array.from({ length: 21 }, () => 'rejected output') }],
+    },
+  } as unknown as LessonMaterial;
+
+  assert.throws(
+    () => store.unlock(blueprint.id, 'lesson-locked', invalid),
+    /invalid_lesson_material/,
+  );
+  const refreshed = store.get(blueprint.id);
+  assert.equal(refreshed?.units[0].lessons[1].status, 'locked');
+  assert.equal(store.material(blueprint.id, 'lesson-locked'), undefined);
 });

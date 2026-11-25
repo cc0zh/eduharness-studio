@@ -116,9 +116,7 @@ async function selectFromEnv(
         continue;
       const model = resolveModel(registry, provider.id, modelId, { baseUrl, override });
       return { model, baseUrl, override, apiKey, source: 'env' } satisfies Selection;
-    } catch {
-      // Bad env configuration must leave the offline classroom usable.
-    }
+    } catch {}
   }
   return undefined;
 }
@@ -206,6 +204,7 @@ function createGateway(
       schema,
       prompt,
       timeoutMs = 30_000,
+      signal,
       maxTokens = 2048,
       attempts = maxAttempts,
       tools = [],
@@ -233,6 +232,9 @@ function createGateway(
       }
 
       const controller = new AbortController();
+      const requestSignal = signal
+        ? AbortSignal.any([signal, controller.signal])
+        : controller.signal;
       let timer: ReturnType<typeof setTimeout> | undefined;
       const deadline = new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => {
@@ -260,6 +262,7 @@ function createGateway(
               parameters: Type.Object({ value: schema }, { additionalProperties: false }),
             },
             complete: async ({ messages, tools: definitions, correction }) => {
+              if (requestSignal.aborted) throw fail('model_timeout');
               const sdkTools: Tool[] = definitions.map(({ name, description, parameters }) => ({
                 name,
                 description,
@@ -277,11 +280,11 @@ function createGateway(
                   fetch: (input, init) => transport(input, { ...init, redirect: 'error' }),
                   maxTokens: Math.min(maxTokens, model.maxTokens),
                   maxRetries: 0,
-                  signal: controller.signal,
+                  signal: requestSignal,
                   timeoutMs,
                 },
               );
-              if (controller.signal.aborted) throw fail('model_timeout');
+              if (requestSignal.aborted) throw fail('model_timeout');
               if (!['toolUse', 'stop', 'length'].includes(response.stopReason)) {
                 throw fail('model_request_failed');
               }
@@ -316,7 +319,7 @@ function createGateway(
       } catch (error) {
         // Provider errors, response text and validation details can contain credentials.
         if (error instanceof ModelGenerationError) throw error;
-        throw fail(controller.signal.aborted ? 'model_timeout' : 'model_request_failed');
+        throw fail(requestSignal.aborted ? 'model_timeout' : 'model_request_failed');
       } finally {
         clearTimeout(timer);
       }
@@ -338,7 +341,6 @@ export function createModelGateway(options: ModelGatewayOptions = {}): ModelGate
   return createGateway(registry, modelProviderIds, options);
 }
 
-/** A separate SDK registry with no network providers, for deterministic tests. */
 export function createFauxModelGateway(options: ModelGatewayOptions = {}) {
   const faux = fauxProvider({ provider: 'faux', models: [{ id: 'faux-1' }, { id: 'faux-2' }] });
   const registry = createModels({ authContext: modelAuthContext(options.readEnv) });

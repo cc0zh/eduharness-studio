@@ -89,6 +89,8 @@ const spanName: Record<string, string> = {
   lesson_script: '生成离线剧本',
   interrupt_continuation: '生成打断续讲',
   calc_verify: 'calc_verify · 安全计算',
+  lesson_opening: '课节生成 · 开场回合',
+  graph_generator: 'graph_generator · 铜版风配图',
 };
 
 export function TraceSpans({ spans }: { spans: LessonTraceSpan[] }) {
