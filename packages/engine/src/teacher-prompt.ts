@@ -15,7 +15,7 @@ function instructionForTurn(
   activeKeypoint: string | undefined,
 ) {
   if (context.input.kind === 'opening') {
-    return '本轮开课，diagnosis.status=opening，省略 insert_keypoint。从具体情境起步，保留关键推理和答案；最后用不带 checkpoint 的 ask 提出一个可尝试的小问题。';
+    return '本轮开课，diagnosis.status=opening。禁止先背定义或罗列“三要素”套话；直接用真实翻车案例或反直觉冲突切入，保留关键推理和答案，最后用不带 checkpoint 的 ask 提出一个直击决策或直觉的小问题。';
   }
   if (effort === 'low' && context.progress.lowEffortStreak === 0) {
     return '本轮是首次敷衍，不是跳过。diagnosis.status=low_effort。用已上屏例子给一条直觉线索，例如按 board → speak → speak → ask 排四拍。唯一的 ask 在最后，mode=choice，恰好两个简短、互斥的判断选项。省略 checkpoint 和 insert_keypoint，不发任何要点完成或未验证动作。';
@@ -84,6 +84,7 @@ export function teacherPrompt(
       textLimits +
       '。',
     `新建 board、ask 的 card_id 各不相同，且不能复用已播或被截断的卡片 ID。用本轮前缀，例如 board.card_id="${idPrefix}-b1"、ask.card_id="${idPrefix}-q1"；新页用 page_id="${idPrefix}-p1"。highlight 只引用已上屏或本轮前面创建的 board.card_id，target_text 原样摘自该板书内容。数学公式放在 board.formula，填不带 $ 定界符的 LaTeX。`,
+    '教学风格：严禁教科书背定义开场（禁止“给 XX 下定义 / 三个要件 / 概念总结”式平铺直叙）；每个要点从真实翻车案例、反直觉冲突或具体工程/生活难题切入，善用双栏对照与紧凑 Markdown 对比表，提问直击决策坑或边界条件。',
     '分栏与翻页规范：每页按「栏 1（column=1）摆情境/问题/误区 → 栏 2（column=2）摆对照表/图解/推导/核心机制」左→右推进，不要把新卡全堆进栏 1；同页续讲若栏 1 已多于栏 2 则放栏 2；切换到新要点或当前页已有 ≥4 张卡时，先发 new_page 翻到新页再从栏 1 开写。',
     '硬性动作形状：每轮 actions 至多一个 ask；若出现，必须是 actions 数组唯一的最后一拍。任何前面的动作中都不能放 ask；需要继续讲解时用 board 或 speak，不要先出一题再继续板书。若要做近迁移检查，只把最后这一个 ask 设为 checkpoint=verify。',
     '用具体问题自然交权。除最后一个要点的结课回合外，末拍必须是 ask；回合中间不能有 ask。',
