@@ -98,6 +98,69 @@ test('lazy lesson retries a rejected opening turn before materializing or unlock
   assert.equal(result.material.script.actions[0].type, 'board');
 });
 
+test('lazy lesson opening correction explicitly removes insertions and premature verify asks', async () => {
+  const faux = createFauxModelGateway();
+  assert.ok(faux.gateway.setByok({ provider: 'faux', modelId: 'faux-1', apiKey: 'faux-test-key' }));
+  const invalid = draft();
+  let openingPrompt = '';
+  let retryPrompt = '';
+  faux.setResponses([
+    (request) => {
+      openingPrompt = request.messages
+        .filter(({ role }) => role === 'user')
+        .map(({ content }) => String(content))
+        .join('\n');
+      return encoded({
+        ...invalid,
+        opening: {
+          ...invalid.opening,
+          insert_keypoint: {
+            id: 'prerequisite',
+            title: '认出阳性',
+            objective: '识别检测阳性的样本。',
+            depth: 'intuition',
+          },
+          actions: invalid.opening.actions.map((action) =>
+            action.type === 'ask' ? { ...action, checkpoint: 'verify' as const } : action,
+          ),
+        },
+      });
+    },
+    (request) => {
+      retryPrompt = request.messages
+        .filter(({ role }) => role === 'user')
+        .map(({ content }) => String(content))
+        .join('\n');
+      return encoded(draft());
+    },
+  ]);
+  const planned = await createCourseLessonPlanner(
+    faux.gateway,
+    {},
+  )({
+    course,
+    lesson,
+    previousKeypoints: [],
+  });
+  assert.match(openingPrompt, /omit insert_keypoint/);
+  assert.match(openingPrompt, /exactly one ordinary ask as the final action/);
+  assert.match(openingPrompt, /omit its checkpoint/);
+  assert.match(openingPrompt, /Never use ask\(checkpoint=verify\)/);
+  assert.match(retryPrompt, /omit insert_keypoint on the opening turn/);
+  assert.match(retryPrompt, /verify ask must be a new near-transfer question/);
+  assert.ok(validateLessonMaterial(planned.material));
+  assert.deepEqual(planned.material.openingEvidence?.guardrails, [
+    {
+      attempt: 1,
+      reasons: [
+        'omit insert_keypoint on the opening turn',
+        'verify ask must be a new near-transfer question for the current point after a substantive answer',
+      ],
+    },
+  ]);
+  assert.equal(faux.state.callCount, 2);
+});
+
 test('stored opening retry diagnostics stay within the material schema reason cap', async () => {
   const faux = createFauxModelGateway();
   assert.ok(faux.gateway.setByok({ provider: 'faux', modelId: 'faux-1', apiKey: 'faux-test-key' }));

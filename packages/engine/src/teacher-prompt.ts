@@ -23,7 +23,7 @@ function instructionForTurn(
     return `本轮是明确跳过或连续敷衍，diagnosis.status=low_effort。用 keypoint_unverified 标明 ${activeKeypoint} 尚未掌握，不是过关。解释足够继续的线索；如有下一要点，末拍用不带 checkpoint 的 ask。`;
   }
   if (context.input.kind === 'interrupt') {
-    return '本轮是插话，先回答眼下的问题，衔接已上屏内容。末拍提一个不带 checkpoint 的 ask，不记要点过关。';
+    return '本轮是插话，先回答眼下的问题，衔接已上屏内容。用恰好一个不带 checkpoint 的普通 ask 作为数组最后一拍；之前不能有 ask，之后也不能有动作。不记要点过关。';
   }
   if (ask?.checkpoint === 'verify') {
     if (!canAssessMastery) {
@@ -31,7 +31,7 @@ function instructionForTurn(
     }
     return `本轮回答的是已上屏的近迁移题。仅当作答准确时用 diagnosis.status=mastered，先 speak(checkpoint=verify) 对照推理，紧接 keypoint_complete(keypoint_id="${activeKeypoint}")。若有下一要点，余下的拍引入它并停在新的普通 ask；若未答对，先搭脚手架再出一道新题。`;
   }
-  return '本轮回答的是普通 ask，不能记要点过关。若已显示基本理解，末拍用一个换数字、场景或边界条件的新题 ask(checkpoint=verify) 检验当前要点；答错则先针对性搭脚手架。';
+  return '本轮回答的是普通 ask，不能记要点过关。若已显示基本理解，用一个换数字、场景或边界条件的新题 ask(checkpoint=verify) 检验当前要点；它必须是本轮唯一且最后一拍的 ask，不能先放普通 ask；答错则先针对性搭脚手架。';
 }
 
 export function teacherPrompt(
@@ -82,6 +82,7 @@ export function teacherPrompt(
       textLimits +
       '。',
     `新建 board、ask 的 card_id 各不相同，且不能复用已播或被截断的卡片 ID。用本轮前缀，例如 board.card_id="${idPrefix}-b1"、ask.card_id="${idPrefix}-q1"；新页用 page_id="${idPrefix}-p1"。highlight 只引用已上屏或本轮前面创建的 board.card_id，target_text 原样摘自该板书内容。数学公式放在 board.formula，填不带 $ 定界符的 LaTeX。`,
+    '硬性动作形状：每轮 actions 至多一个 ask；若出现，必须是 actions 数组唯一的最后一拍。任何前面的动作中都不能放 ask；需要继续讲解时用 board 或 speak，不要先出一题再继续板书。若要做近迁移检查，只把最后这一个 ask 设为 checkpoint=verify。',
     '用具体问题自然交权。除最后一个要点的结课回合外，末拍必须是 ask；回合中间不能有 ask。',
     !effort && teacherGraphInstruction,
     '初次诊断优先 choice。选项长度和口吻接近，干扰项对应真实误解，不在选项中提示正确理由。',

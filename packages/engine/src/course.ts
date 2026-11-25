@@ -150,7 +150,7 @@ export function createCourseLessonPlanner(
           prompt: [
             'Prepare one concise, Chinese-language whiteboard lesson with no external search.',
             'Write 2–6 progressive keypoints and an optional factual LessonBasis.',
-            'Opening contract: diagnosis.status=opening; 4–8 actions; one ordinary ask as the sole final action; no keypoint outcome or verify checkpoint. Do not include step_id.',
+            'Opening contract (hard): diagnosis.status=opening; omit insert_keypoint, keypoint_complete and keypoint_unverified. Use 4–8 actions with exactly one ordinary ask as the final action; omit its checkpoint and do not add another ask. Never use ask(checkpoint=verify) before the student has answered. Do not include step_id.',
             'Keep all board and graph content complete but ≤180 characters; title ≤48; formula ≤140; speak ≤140; ask prompt ≤140; choice labels ≤56. Give all board/graph/ask cards unique IDs. Highlight only a prior board/graph card, quoting text in its content.',
             `Character budgets: ${JSON.stringify(teacherTextLimits)}`,
             teacherGraphInstruction,
