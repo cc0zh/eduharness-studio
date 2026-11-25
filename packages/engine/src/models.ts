@@ -271,7 +271,7 @@ function createGateway(
               const response = await registry.completeSimple(
                 model,
                 {
-                  systemPrompt: `Return exactly one ${outputTool} call for the final structured result. Use a declared tool when it helps numeric verification. ${correction ? 'Correct the previous output or tool use.' : ''}`,
+                  systemPrompt: `Return exactly one ${outputTool} call for the final structured result.${definitions.length > 1 ? ' Call a calculation tool only when exact arithmetic verification is truly needed; never call it for conceptual topics or trivial expressions.' : ''} ${correction ? 'Correct the previous output or tool use.' : ''}`,
                   messages: [...messages],
                   tools: sdkTools,
                 },

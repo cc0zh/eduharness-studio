@@ -124,10 +124,12 @@ test('M2-2b Chromium: loopback BYOK, native calc_verify tool cycle, guardrails a
   assert.ok(
     trace.teacherTurns.some(({ guardrails }) =>
       guardrails.some(({ reasons }) =>
-        reasons.some((reason) => reason.includes('mastery requires')),
+        reasons.some(
+          (reason) => reason.includes('diagnosis.status') || reason.includes('mastery requires'),
+        ),
       ),
     ),
-    'Expected the state-machine guardrail to reject an unverified mastery claim',
+    'Expected the turn schema or guardrail to reject an unverified mastery claim',
   );
 
   await page.getByRole('switch', { name: 'Agent X-Ray' }).click();

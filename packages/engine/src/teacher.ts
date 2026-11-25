@@ -9,6 +9,7 @@ import {
   type TeacherTurnContext,
   teacherAnswerEvidence,
 } from './teacher-guardrails.js';
+import { normalizeTurnLayout } from './teacher-layout.js';
 import { teacherPrompt } from './teacher-prompt.js';
 import {
   createTeacherTurnSchema,
@@ -44,6 +45,7 @@ export function teacherTurnSchemaForContext(context: TeacherTurnContext) {
     (evidence.effort === 'skip' ||
       (evidence.effort === 'low' && context.progress.lowEffortStreak > 0));
   return createTeacherTurnSchema({
+    opening: false,
     insertKeypoint: canInsertKeypoint,
     keypointComplete: canAssessMastery,
     keypointUnverified: canMarkUnverified,
@@ -119,13 +121,21 @@ export function createTeacherPlanner(
             context.input.kind === 'opening',
           );
           if (graph) spans.push(teacherGraphSpan(anchor.generation, graph));
+          const laidOut = normalizeTurnLayout(
+            context,
+            checked.initialState,
+            checked.keypoints,
+            actions,
+            checked.trace,
+            checked.progress,
+          );
           return {
             ok: true as const,
-            actions,
+            actions: laidOut.actions,
             keypoints: checked.keypoints,
             initialState: checked.initialState,
-            progress: checked.progress,
-            trace: { ...trace, ...checked.trace, outcome: 'accepted' as const },
+            progress: laidOut.progress,
+            trace: { ...trace, ...laidOut.trace, outcome: 'accepted' as const },
             spans,
           };
         }

@@ -196,6 +196,13 @@ test('turn schemas omit opening, ordinary-answer and interruption fields that th
   assert.equal(
     Value.Check(openingSchema, {
       ...opening,
+      diagnosis: { ...opening.diagnosis, status: 'clarifying' },
+    }),
+    false,
+  );
+  assert.equal(
+    Value.Check(openingSchema, {
+      ...opening,
       insert_keypoint: {
         id: 'prerequisite',
         title: '识别阳性',
@@ -237,6 +244,20 @@ test('turn schemas omit opening, ordinary-answer and interruption fields that th
   };
   assert.equal(Value.Check(answerSchema, finalAnswer), true);
   assert.equal(Value.Check(answerSchema, prematureMastery), false);
+  assert.equal(
+    Value.Check(answerSchema, {
+      ...finalAnswer,
+      diagnosis: { ...finalAnswer.diagnosis, status: 'mastered' },
+    }),
+    false,
+  );
+  assert.equal(
+    Value.Check(answerSchema, {
+      ...finalAnswer,
+      diagnosis: { ...finalAnswer.diagnosis, status: 'opening' },
+    }),
+    false,
+  );
   const insertedAnswer: TeacherTurnOutput = {
     ...finalAnswer,
     diagnosis: { status: 'missing_prereq', summary: '先补前置概念。', strategy: '先按样本分类。' },
@@ -314,4 +335,57 @@ test('turn schemas omit opening, ordinary-answer and interruption fields that th
     }),
     false,
   );
+});
+
+test('teacher layout auto-paginates new keypoints and balances left-to-right columns', async () => {
+  const faux = createFauxModelGateway();
+  assert.ok(
+    faux.gateway.setByok({ provider: 'faux', modelId: 'faux-1', apiKey: 'layout-test-key' }),
+  );
+  const completedWithCol1Stack: TeacherTurnOutput = {
+    diagnosis: { status: 'mastered', summary: '迁移正确。', strategy: '进入下一要点。' },
+    actions: [
+      { type: 'speak', checkpoint: 'verify', text: '分母计算准确。' },
+      { type: 'keypoint_complete', keypoint_id: 'posterior' },
+      {
+        type: 'board',
+        column: 1,
+        card_id: 's11-b1',
+        title: '反例情境',
+        content: '先看第一组样本。',
+      },
+      {
+        type: 'board',
+        column: 1,
+        card_id: 's11-b2',
+        title: '冲突在哪',
+        content: '假阳性占了大头。',
+      },
+      {
+        type: 'board',
+        column: 1,
+        card_id: 's11-b3',
+        title: '对照表',
+        content: '把两栏人数并排对比。',
+      },
+      { type: 'ask', card_id: 's11-q1', mode: 'open', prompt: '哪一栏主导了最终比例？' },
+    ],
+  };
+  faux.setResponses([emit(completedWithCol1Stack)]);
+  const verifiedContext: TeacherTurnContext = {
+    ...context,
+    played: [{ ...previousAsk, checkpoint: 'verify' }],
+  };
+  const result = await createTeacherPlanner(faux.gateway, [])(verifiedContext, []);
+  assert.ok(result.ok, result.ok ? undefined : JSON.stringify(result));
+  assert.equal(result.actions[0].type, 'speak');
+  assert.equal(result.actions[1].type, 'keypoint_complete');
+  assert.equal(result.actions[2].type, 'new_page');
+  assert.equal(result.actions[2].title, '特异度');
+  const boards = result.actions.filter((action) => action.type === 'board');
+  assert.deepEqual(
+    boards.map(({ column }) => column),
+    [1, 1, 2],
+  );
+  assert.equal(result.progress.highWater, result.actions.at(-1)?.step_id);
 });

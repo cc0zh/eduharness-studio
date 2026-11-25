@@ -87,12 +87,38 @@ export const TeacherTurnOutputSchema = turnSchema(
 );
 
 export type TeacherTurnSchemaPolicy = {
+  opening?: boolean;
   insertKeypoint: boolean;
   keypointComplete: boolean;
   keypointUnverified: boolean;
   askCheckpoint: boolean;
   speakCheckpoint: boolean;
 };
+
+function diagnosisSchemaForPolicy(policy: TeacherTurnSchemaPolicy) {
+  if (policy.opening) {
+    return Type.Object(
+      { status: Type.Literal('opening'), summary: short(180), strategy: short(180) },
+      strict,
+    );
+  }
+  const statuses: TSchema[] = [
+    Type.Literal('misconception'),
+    Type.Literal('missing_prereq'),
+    Type.Literal('answer_seeking'),
+    Type.Literal('low_effort'),
+    Type.Literal('clarifying'),
+    ...(policy.keypointComplete ? [Type.Literal('mastered')] : []),
+  ];
+  return Type.Object(
+    {
+      status: Type.Union(statuses as [TSchema, ...TSchema[]]),
+      summary: short(180),
+      strategy: short(180),
+    },
+    strict,
+  );
+}
 
 /** Create a strict subset of the structured-turn contract for one teaching phase. */
 export function createTeacherTurnSchema(
@@ -118,7 +144,7 @@ export function createTeacherTurnSchema(
   ];
   const schema = Type.Object(
     {
-      diagnosis: TeacherDiagnosisSchema,
+      diagnosis: diagnosisSchemaForPolicy(policy),
       ...(policy.insertKeypoint ? { insert_keypoint: Type.Optional(InsertKeypointSchema) } : {}),
       actions: Type.Array(Type.Union(actions as [TSchema, ...TSchema[]]), {
         minItems: 4,
@@ -132,6 +158,7 @@ export function createTeacherTurnSchema(
 }
 
 export const TeacherOpeningTurnSchema = createTeacherTurnSchema({
+  opening: true,
   insertKeypoint: false,
   keypointComplete: false,
   keypointUnverified: false,

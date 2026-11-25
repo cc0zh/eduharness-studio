@@ -6,6 +6,7 @@ import {
   teacherAnswerEvidence,
   teacherTextLimits,
 } from './teacher-guardrails.js';
+import { summarizeBoardLayout } from './teacher-layout.js';
 import type { TeacherTool } from './teacher-tools.js';
 
 function instructionForTurn(
@@ -31,7 +32,7 @@ function instructionForTurn(
     }
     return `本轮回答的是已上屏的近迁移题。仅当作答准确时用 diagnosis.status=mastered，先 speak(checkpoint=verify) 对照推理，紧接 keypoint_complete(keypoint_id="${activeKeypoint}")。若有下一要点，余下的拍引入它并停在新的普通 ask；若未答对，先搭脚手架再出一道新题。`;
   }
-  return '本轮回答的是普通 ask，不能记要点过关。若已显示基本理解，用一个换数字、场景或边界条件的新题 ask(checkpoint=verify) 检验当前要点；它必须是本轮唯一且最后一拍的 ask，不能先放普通 ask；答错则先针对性搭脚手架。';
+  return '本轮回答的是普通 ask，不能记要点过关，diagnosis.status 严禁用 mastered（答对或基本理解时用 clarifying）。若已显示基本理解，用一个换数字、场景或边界条件的新题 ask(checkpoint=verify) 检验当前要点；它必须是本轮唯一且最后一拍的 ask，不能先放普通 ask；答错则先针对性搭脚手架。';
 }
 
 export function teacherPrompt(
@@ -46,16 +47,17 @@ export function teacherPrompt(
   const board = context.played
     .flatMap((action) => {
       if (action.type === 'board') {
-        const { card_id, title, content, formula, step_id } = action;
-        return [{ step_id, card_id, title, content, formula }];
+        const { card_id, column, title, content, formula, step_id } = action;
+        return [{ step_id, card_id, column, title, content, formula }];
       }
       if (action.type === 'graph') {
-        const { card_id, title, formula, step_id } = action;
-        return [{ step_id, card_id, title, content: '已展示示意图', formula }];
+        const { card_id, column, title, formula, step_id } = action;
+        return [{ step_id, card_id, column, title, content: '已展示示意图', formula }];
       }
       return [];
     })
     .slice(-12);
+  const boardLayout = summarizeBoardLayout(context.played);
   const lastPlayed = context.played.at(-1);
   const currentAsk =
     lastPlayed?.type === 'ask'
@@ -82,6 +84,7 @@ export function teacherPrompt(
       textLimits +
       '。',
     `新建 board、ask 的 card_id 各不相同，且不能复用已播或被截断的卡片 ID。用本轮前缀，例如 board.card_id="${idPrefix}-b1"、ask.card_id="${idPrefix}-q1"；新页用 page_id="${idPrefix}-p1"。highlight 只引用已上屏或本轮前面创建的 board.card_id，target_text 原样摘自该板书内容。数学公式放在 board.formula，填不带 $ 定界符的 LaTeX。`,
+    '分栏与翻页规范：每页按「栏 1（column=1）摆情境/问题/误区 → 栏 2（column=2）摆对照表/图解/推导/核心机制」左→右推进，不要把新卡全堆进栏 1；同页续讲若栏 1 已多于栏 2 则放栏 2；切换到新要点或当前页已有 ≥4 张卡时，先发 new_page 翻到新页再从栏 1 开写。',
     '硬性动作形状：每轮 actions 至多一个 ask；若出现，必须是 actions 数组唯一的最后一拍。任何前面的动作中都不能放 ask；需要继续讲解时用 board 或 speak，不要先出一题再继续板书。若要做近迁移检查，只把最后这一个 ask 设为 checkpoint=verify。',
     '用具体问题自然交权。除最后一个要点的结课回合外，末拍必须是 ask；回合中间不能有 ask。',
     !effort && teacherGraphInstruction,
@@ -92,7 +95,7 @@ export function teacherPrompt(
       '只在学生显露关键前置缺口时诊断 missing_prereq 并 insert_keypoint。插点后本轮教补课要点，设置新 id，最多两次，总要点最多六个；末拍不用 checkpoint。',
     instructionForTurn(context, answer, activeKeypoint),
     toolBudget > 0 && tools.length
-      ? `数值核对或构造反例确有帮助时，可通过 pi-ai 工具循环调用可用工具，剩余 ${toolBudget} 步。先核对工具结果再定稿；若 approximate=true，只能作为估算，不能声称精确相等。结果失败或超限时应解释不确定性并降级。工具：${JSON.stringify(tools.map(({ name, description, parameters }) => ({ name, description, parameters })))}`
+      ? `仅当本轮涉及需要精确核对的数值、分数、概率或反例计算时才调用 calc_verify（剩余 ${toolBudget} 步）；概念、架构或非数值话题直接返回课堂回合，禁止调用 1+1、1 等占位算式。若 approximate=true，只能作为估算，不能声称精确相等。工具：${JSON.stringify(tools.map(({ name, description, parameters }) => ({ name, description, parameters })))}`
       : '直接返回完整课堂回合。',
     `课堂输入：${JSON.stringify({
       topic: context.topic,
@@ -100,6 +103,7 @@ export function teacherPrompt(
       activeKeypoint,
       state: context.state,
       basis: context.basis,
+      boardLayout,
       board,
       dialogue: dialogue.slice(-10).map(({ text, role, evidenceStepIds }) => ({
         text: text.slice(-1500),
