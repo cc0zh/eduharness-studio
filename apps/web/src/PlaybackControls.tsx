@@ -24,6 +24,13 @@ export function PlaybackControls({
   };
 }) {
   const [interruption, setInterruption] = useState('');
+  const lastRecord = playback.records.at(-1);
+  const showPauseNote = playback.paused && !playback.end && !playback.busy && !playback.error;
+  // A committed cut with no newer beat on screen is still waiting for playback.
+  const replyWaiting =
+    showPauseNote &&
+    lastRecord?.kind === 'interrupt' &&
+    lastRecord.last_played_step_id === (playback.played.at(-1)?.step_id ?? 0);
   const status =
     playback.end === 'done'
       ? '本课演播完成'
@@ -57,7 +64,7 @@ export function PlaybackControls({
         aria-label="课堂播放控制"
         className="mx-auto max-w-[56rem] overflow-hidden rounded-[14px] border border-ink/10 bg-surface shadow-[0_4px_20px_rgba(26,25,23,0.045),0_1px_2px_rgba(26,25,23,0.02)]"
       >
-        <div className="px-4 py-3 sm:px-5 sm:py-3.5">
+        <div className="px-3 py-3 sm:px-5 sm:py-3.5">
           {playback.error && (
             <div className="mb-2.5 flex flex-wrap items-center gap-2 rounded-lg bg-accent-soft/75 px-3 py-1.5 text-xs text-accent">
               <p role="alert">{playback.error}</p>
@@ -84,7 +91,7 @@ export function PlaybackControls({
               submit={playback.submitAnswer}
             />
           ) : (
-            <div className="space-y-2.5">
+            <div className="flex flex-col gap-2.5">
               {/* 上行：全宽舒展的导师口语旁白 */}
               <div
                 data-caption-evidence={captionEvidence?.selected || undefined}
@@ -148,6 +155,9 @@ export function PlaybackControls({
                   <button
                     type="button"
                     aria-label="单拍前进 Step"
+                    aria-describedby={
+                      showPauseNote && !replyWaiting ? 'playback-pause-note' : undefined
+                    }
                     onClick={playback.stepForward}
                     disabled={!playback.canStep}
                     className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg border border-ink/12 bg-canvas/70 px-2.5 text-xs font-medium text-ink-secondary transition-colors hover:border-ink/35 hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
@@ -160,7 +170,7 @@ export function PlaybackControls({
 
                 <form
                   onSubmit={interrupt}
-                  className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg bg-canvas/75 px-3 py-1 transition-colors focus-within:bg-canvas focus-within:ring-1 focus-within:ring-ink/20 sm:max-w-xs"
+                  className="flex w-full min-w-0 items-center gap-1.5 rounded-lg bg-canvas/75 px-2 py-1 transition-colors focus-within:bg-canvas focus-within:ring-1 focus-within:ring-ink/20 sm:max-w-xs sm:flex-[1_1_16rem] sm:px-3"
                 >
                   <input
                     aria-label="打断插话"
@@ -169,18 +179,32 @@ export function PlaybackControls({
                     value={interruption}
                     onChange={(event) => setInterruption(event.target.value)}
                     disabled={!playback.canInterrupt}
-                    className="min-w-0 flex-1 bg-transparent py-0.5 text-xs text-ink outline-none placeholder:text-ink-faint disabled:opacity-50"
+                    className="h-9 min-w-0 flex-1 bg-transparent py-0.5 text-base text-ink outline-none placeholder:text-ink-faint disabled:opacity-50 sm:h-auto sm:text-xs"
                   />
                   <button
                     type="submit"
                     disabled={!playback.canInterrupt || !interruption.trim()}
-                    className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 text-xs font-medium text-ink-secondary transition-colors hover:text-accent disabled:cursor-not-allowed disabled:opacity-35"
+                    className="inline-flex h-9 min-w-11 shrink-0 cursor-pointer items-center justify-center gap-1 rounded-md px-1.5 text-xs font-medium text-ink-secondary transition-colors hover:text-accent disabled:cursor-not-allowed disabled:opacity-35 sm:h-6 sm:min-w-0"
                   >
-                    <Send aria-hidden="true" className="size-3" />
+                    <Send aria-hidden="true" className="hidden size-3 sm:block" />
                     插话
                   </button>
                 </form>
               </div>
+              <p
+                id="playback-pause-note"
+                role="status"
+                className={cn(
+                  'text-xs',
+                  replyWaiting ? 'text-olive' : 'text-muted',
+                  !showPauseNote && 'sr-only',
+                )}
+              >
+                {showPauseNote &&
+                  (replyWaiting
+                    ? '已收到插话，继续后播放回应。'
+                    : '一拍可能只更新字幕、标记或板书。')}
+              </p>
             </div>
           )}
         </div>

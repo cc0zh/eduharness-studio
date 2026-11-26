@@ -1,6 +1,6 @@
 import { type DepthTag, sanitizeSvg } from '@eduharness-studio/engine';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { type CSSProperties, useEffect, useRef } from 'react';
+import { type CSSProperties, useEffect, useId, useRef, useState } from 'react';
 import { BoardContent } from './BoardContent';
 import { BoardFormula } from './BoardFormula';
 import { EvidenceLink } from './EvidenceLink';
@@ -35,11 +35,6 @@ export function BoardStage({
     (card ?? stage.current)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [target]);
   const latest = pages.length - 1;
-  const visualCols = Math.max(2, page.columns);
-  const gridStyle = {
-    '--board-cols': String(page.columns),
-    '--board-visual-cols': String(visualCols),
-  } as CSSProperties;
   const pageButton =
     'grid size-7 place-items-center rounded-xs border border-border bg-surface text-ink-secondary transition-colors hover:border-ink hover:text-ink focus-visible:outline-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-35';
 
@@ -103,15 +98,75 @@ export function BoardStage({
         </nav>
       </div>
 
+      <BoardColumns key={pageIndex} page={page} evidence={evidence} />
+    </section>
+  );
+}
+
+function BoardColumns({ page, evidence }: { page: BoardPage; evidence?: EvidenceView }) {
+  const grid = useRef<HTMLElement>(null);
+  const gridId = useId();
+  const [overflow, setOverflow] = useState(false);
+  const columnCount = page.columns;
+  const visualCols = Math.max(2, columnCount);
+  const slots = columnSlots(columnCount);
+  const gridStyle = {
+    '--board-cols': String(columnCount),
+    '--board-visual-cols': String(visualCols),
+  } as CSSProperties;
+
+  useEffect(() => {
+    const scroller = grid.current;
+    if (!scroller || columnCount < 2) return;
+    const measure = () => setOverflow(scroller.scrollWidth > scroller.clientWidth);
+    const observer = new ResizeObserver(measure);
+    observer.observe(scroller);
+    measure();
+    return () => observer.disconnect();
+  }, [columnCount]);
+
+  function showColumn(number: number) {
+    const scroller = grid.current;
+    const column = scroller?.children.item(number - 1);
+    if (!scroller || !column) return;
+    scroller.scrollLeft +=
+      column.getBoundingClientRect().left - scroller.getBoundingClientRect().left;
+  }
+
+  return (
+    <>
+      {columnCount > 1 && overflow && (
+        <nav
+          aria-label="板书分栏定位"
+          className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border-faint bg-surface/80 px-2.5 py-1.5"
+        >
+          <span className="text-xs text-ink-secondary">横滑白板，或点选栏号</span>
+          <div className="flex flex-wrap gap-1.5">
+            {slots.map(({ id, number }) => (
+              <button
+                key={id}
+                type="button"
+                aria-controls={gridId}
+                aria-label={`查看第 ${number} 栏`}
+                onClick={() => showColumn(number)}
+                className="min-h-8 cursor-pointer rounded-md border border-border bg-canvas px-2 text-xs font-medium text-ink-secondary hover:border-ink/35 hover:text-accent focus-visible:outline-2 focus-visible:outline-ink"
+              >
+                第 {number} 栏
+              </button>
+            ))}
+          </div>
+        </nav>
+      )}
       <section
-        key={pageIndex}
+        ref={grid}
+        id={gridId}
         aria-label="板书分栏"
         data-board-page={page.id}
-        data-board-columns={page.columns}
+        data-board-columns={columnCount}
         className="board-columns-grid grid min-w-0 items-start gap-x-0 gap-y-5 overflow-x-auto overscroll-x-contain pb-2"
         style={gridStyle}
       >
-        {columnSlots(page.columns).map(({ id, number }) => (
+        {slots.map(({ id, number }) => (
           <section
             key={id}
             aria-label={`板书第 ${number} 栏`}
@@ -133,7 +188,7 @@ export function BoardStage({
           </section>
         ))}
       </section>
-    </section>
+    </>
   );
 }
 

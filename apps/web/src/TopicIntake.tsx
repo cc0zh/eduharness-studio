@@ -103,6 +103,7 @@ export function TopicIntake() {
             ref={topicInput}
             id="topic"
             type="text"
+            aria-describedby={step ? undefined : 'offline-intake-note'}
             placeholder="输入你想彻底搞懂的主题，例如：线性插值、傅里叶变换…"
             value={topic}
             maxLength={INTAKE_LIMITS.topic}
@@ -181,21 +182,26 @@ export function TopicIntake() {
       </form>
 
       {!step && (
-        <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-xs text-muted">
-          <span>试试主题：</span>
-          {QUICK_TOPICS.map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => {
-                changeTopic(item);
-                topicInput.current?.focus();
-              }}
-              className="cursor-pointer border-b border-border pb-px text-ink-secondary transition-colors hover:border-accent hover:text-accent"
-            >
-              {item}
-            </button>
-          ))}
+        <div className="mt-3 space-y-2 text-xs text-muted">
+          <p id="offline-intake-note" className="text-center leading-relaxed">
+            不填 Key 也能上精选示范课。离线自由建课只提供学习路线和通用课堂样例，不提供主题专讲。
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5">
+            <span>试试主题：</span>
+            {QUICK_TOPICS.map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => {
+                  changeTopic(item);
+                  topicInput.current?.focus();
+                }}
+                className="cursor-pointer border-b border-border pb-px text-ink-secondary transition-colors hover:border-accent hover:text-accent"
+              >
+                {item}
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </section>

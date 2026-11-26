@@ -23,7 +23,7 @@
     "check:hygiene": "node scripts/check-code-hygiene.mjs",
     "check:static": "node scripts/check-static.mjs",
     "test": "node scripts/run-tests.mjs",
-    "test:e2e": "node --test test/browser-m1.test.mjs test/browser-m2-1.test.mjs test/browser-m2-2.test.mjs test/browser-m2-2b.test.mjs test/browser-m2-3.test.mjs test/browser-m2-4-graph.test.mjs test/browser-m2-5-lifecycle.test.mjs",
+    "test:e2e": "node --test test/browser-m1.test.mjs test/browser-m2-1.test.mjs test/browser-m2-2.test.mjs test/browser-m2-2b.test.mjs test/browser-m2-3.test.mjs test/browser-m2-4-graph.test.mjs test/browser-m2-5-lifecycle.test.mjs test/browser-ux-audit.test.mjs",
     "check": "node scripts/check.mjs"
   },
   "devDependencies": {

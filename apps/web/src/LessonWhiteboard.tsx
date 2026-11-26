@@ -79,7 +79,7 @@ function PlayingLesson({
   // 键盘快捷键：Space 暂停/继续，→ 单拍前进（输入框内自动忽略）
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
       const active = document.activeElement;
       if (
         active instanceof HTMLInputElement ||
@@ -89,7 +89,7 @@ function PlayingLesson({
       ) {
         return;
       }
-      if (event.code === 'Space' && playback.canToggle) {
+      if (event.code === 'Space' && playback.canToggle && !(active instanceof HTMLButtonElement)) {
         event.preventDefault();
         playback.togglePaused();
       } else if (event.code === 'ArrowRight' && playback.canStep) {
