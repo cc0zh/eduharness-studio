@@ -27,12 +27,12 @@
 - **教师引擎执行架构**：认知规划型受控单回合闭环（显式诊断 + 卡壳动态插补课要点 + 诊断型选项 `ask` 与敷衍柔性降级 + 状态机硬护栏自纠偏，重点保 `verify` 过关门禁，吸取 `eduharness` 阶段 3 教训绝不写死生硬交权话术，不做多轮自由 UI Tool-Calling）+ 轻量安全数学工具 `calc_verify`（零 `eval`、零联网，X-Ray 展示诊断/拦截/耗时）+ 统一按拍事件流抽象；先打穿单堂真课并尽早授权试学，若实测首拍等待偏慢再借 `pi-ai` 平滑升级流式逐拍解析（前端零改动）。
 - **契约预留与 X-Ray 边界**：课节/课程契约预留可选 `basis`（课前依据与来源）槽位供 M4 扩展；`Agent X-Ray` 在 M2 保持实时工程追踪与离线 6 维快检，不在本仓重复维护真 6 维裁判 prompt（真裁判归口 M3）。
 
-## M3（下一步）：`eduharness-ts` 双项目真评测闭环与收官
+## M3（已收官）：`eduharness-ts` 双项目真评测闭环与收官（[归档规格](../archive/m3-spec.md) · [验收证据](../status.md#m3-验收证据)）
 
 - 以同栈 TypeScript 仓库 `eduharness-ts`（完整 `e1-binary-v3` 6 维 19 题尺子，99/99 黄金对拍 0 偏差）为唯一评测底座；老 JS 版 `eduharness` 保持只读归档。
-- 不向 `eduharness-ts` 搬入重型模拟学生压测，仅补极轻的 `judge-only` 外部公开对话评分入口（并完成其 Phase 4 真机验证）。
-- `studio` 补齐 CLI 投影导出脚本（按师生回合归并），将真实白板课（含人工/定向刁难、中途打断、伸手要答案用例）送进 `eduharness-ts --judge-only`，留存可验真 6 维收据与离线 HTML 复核报告；收口精简 [README](../../README.md)。
+- `eduharness-ts` 补齐极轻 `--judge-only` 外部公开对话评分入口（兼完成 Phase 4 授权真机验证）；`studio` 冻结前端 UI 与既有业务功能，交付纯引擎 `EvidenceMessage[]` 投影与只读 SQLite 导出 CLI（`npm run export:judge`）。
+- 完成 4 场景离线预演与守卫加固，经预算授权完成首轮真机 `live-02`（Studio 19/114 POST）与 `eduharness-ts --judge-only --mode real`（12/72 次、0 重试、`--verify-run` 通过与 Chrome 离线 HTML 核验），并将两项已知内容与脚本边界诚实入档、统一收口 [README](../../README.md)。
 
-## M4（闭环后进阶增强）：建课轻联网检索与来源溯源
+## M4（已搁置 · 保留架构槽位）：建课轻联网检索与来源溯源
 
-- 基于 M2 预留的 `basis` 槽位接入轻量联网调研，为冷门或前沿主题生成带来源依据的课前教学依据与白板溯源；无搜索 Key 时自动平滑降级为模型自有知识。
+- 基于 M2 预留的 `LessonBasis` 槽位保留演进位，不纳入本轮双项目收官交付。

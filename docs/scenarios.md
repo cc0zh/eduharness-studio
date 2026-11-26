@@ -31,8 +31,8 @@
 
 ## M3：`eduharness-ts` 真评测闭环与收官
 
-- **场景 M3-1（`judge-only` 真实回归验真）**：通过 CLI 将真实白板课（含人工/定向刁难、打断、要答案用例）的公开对话投影送入 `eduharness-ts --judge-only`，产出可验真 6 维收据与离线 HTML 复核报告，收口精简 `README.md`。
+- **场景 M3-1（`judge-only` 真实回归验真）**：通过只读 SQLite CLI（`npm run export:judge`）将确认上屏的公开对话投影送入 `eduharness-ts --judge-only`，离线全通并经预算授权完成真机 `live-02`（Studio 19/114 POST、ts 12/72 次、`--verify-run` `verified=true` 与 Chrome 离线 HTML `#n` 高亮核验），诚实记录内容与脚本边界并收口 `README.md`。[已执行证据](status.md#m3-验收证据)
 
-## M4：建课轻联网检索与来源溯源
+## M4（已搁置 · 预留槽位）：建课轻联网检索与来源溯源
 
-- **场景 M4-1（带来源依据建课）**：基于 M2 预留的 `basis` 槽位启用轻量联网调研，对前沿/冷门主题生成带来源引用的课前依据，无搜索 Key 时自动平滑降级。
+- 基于 M2 预留的 `LessonBasis` 槽位保留演进位，未纳入 M3 收官交付。

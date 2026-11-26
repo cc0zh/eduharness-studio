@@ -30,6 +30,12 @@ npm run test:e2e
 
 # 同时启动本地后端（3001）与前端（5173）
 npm run dev
+
+# 只读导出已上屏公开对话供 eduharness-ts --judge-only 评分
+npm run export:judge -- --db data/studio.sqlite --latest --out .tmp/judge-plan.json
+
+# 离线零外网预演 M3 四场景对抗采集（不发真实模型请求）
+npm run m3:rehearse -- --out-dir .tmp/m3-rehearsal
 ```
 
 ## 端口与数据库配置

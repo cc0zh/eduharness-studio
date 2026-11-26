@@ -18,6 +18,7 @@
 - [M1 详细规格书](archive/m1-spec.md)
 - [M1.5 详细规格书](archive/m1.5-spec.md)
 - [M2 详细规格书](archive/m2-spec.md) — 真实模型与完整课堂闭环
+- [M3 详细规格书](archive/m3-spec.md) — `eduharness-ts` 双项目真评测闭环与收官
 
 ## 写入路由
 
