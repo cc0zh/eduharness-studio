@@ -79,7 +79,9 @@ export function runSessionTeacher(store: Store, cursor: SessionCursor, planTurn:
       return store.records(expected.id);
     });
     if ('error' in records) return records;
-    const plan = await planTurn(context, projectPlayedDialogue(context.played, records).turns);
+    // Keep the teacher prompt's existing transcript rendering.
+    const dialogue = projectPlayedDialogue(context.played, records, 'teacher-context');
+    const plan = await planTurn(context, dialogue.turns);
     return store.transaction(() => {
       const current = cursor.owned(expected.id, expected.queue.generation);
       if ('error' in current) return current;

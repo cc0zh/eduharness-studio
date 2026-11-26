@@ -31,7 +31,65 @@ export interface StoredSession {
   queue: QueueData;
 }
 
+/** Shared persisted reads; safe to construct with a read-only SQLite connection. */
+export function sessionReader(db: DatabaseSync) {
+  const get = db.prepare(`
+    SELECT id, state, COALESCE(last_played_step_id, 0) AS lastPlayed, snapshot_json
+    FROM sessions WHERE id = ? AND ${currentFormat}
+  `);
+  const records = db.prepare(`
+    SELECT payload_json FROM session_events WHERE session_id = ?
+      AND kind IN ('subtitle', 'answer', 'interrupt') ORDER BY id
+  `);
+  const playedSteps = db.prepare(`
+    SELECT payload_json FROM session_events
+    WHERE session_id = ? AND kind = 'played-step' ORDER BY id
+  `);
+  return {
+    load(id: string): StoredSession | undefined {
+      const row = get.get(id) as
+        | { id: string; state: TeachingState; lastPlayed: number; snapshot_json: string }
+        | undefined;
+      if (!row) return undefined;
+      const { snapshot_json, ...fields } = row;
+      return { ...fields, queue: JSON.parse(snapshot_json) as QueueData };
+    },
+    records(id: string) {
+      return records
+        .all(id)
+        .map(({ payload_json }) => JSON.parse(String(payload_json)) as LessonRecord);
+    },
+    playedStepIds(id: string) {
+      return playedSteps.all(id).map(({ payload_json }) => {
+        const payload = JSON.parse(String(payload_json)) as { step_id?: unknown } | null;
+        return payload?.step_id;
+      });
+    },
+    latestId() {
+      const row = db
+        .prepare(`
+        SELECT id FROM sessions WHERE ${currentFormat} AND json_extract(snapshot_json, '$.retired') = 0
+        ORDER BY updated_at DESC, rowid DESC LIMIT 1
+      `)
+        .get();
+      return typeof row?.id === 'string' ? row.id : undefined;
+    },
+    readTransaction<T>(read: () => T): T {
+      db.exec('BEGIN');
+      try {
+        const result = read();
+        db.exec('COMMIT');
+        return result;
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+    },
+  };
+}
+
 export function sessionDatabase(db: DatabaseSync) {
+  const reader = sessionReader(db);
   const insert = db.prepare(`
     INSERT INTO sessions (id, course_id, lesson_id, state, last_played_step_id, snapshot_json, updated_at)
     VALUES (?, ?, ?, 'intake', NULL, ?, ?)
@@ -50,10 +108,6 @@ export function sessionDatabase(db: DatabaseSync) {
     SELECT 1 FROM sessions WHERE id = ?
       AND json_type(snapshot_json, '$.version') IS NULL LIMIT 1
   `);
-  const get = db.prepare(`
-    SELECT id, state, COALESCE(last_played_step_id, 0) AS lastPlayed, snapshot_json
-    FROM sessions WHERE id = ? AND ${currentFormat}
-  `);
   const header = db.prepare(`
     SELECT state, COALESCE(last_played_step_id, 0) AS lastPlayed,
       json_extract(snapshot_json, '$.generation') AS generation,
@@ -71,13 +125,9 @@ export function sessionDatabase(db: DatabaseSync) {
   const lastEvent = db.prepare(`
     SELECT payload_json FROM session_events WHERE session_id = ? AND kind = ? ORDER BY id DESC LIMIT 1
   `);
-  const records = db.prepare(`
-    SELECT payload_json FROM session_events WHERE session_id = ?
-      AND kind IN ('subtitle', 'answer', 'interrupt') ORDER BY id
-  `);
   const diagnosticEvents = db.prepare(`
     SELECT kind, payload_json FROM session_events WHERE session_id = ?
-      AND kind IN ('state', 'trace', 'teacher-turn', 'played-step') ORDER BY id
+      AND kind IN ('state', 'trace', 'teacher-turn') ORDER BY id
   `);
   const rotated = db.prepare(`
     SELECT 1 FROM session_events WHERE session_id = ? AND kind = 'interrupt'
@@ -98,20 +148,11 @@ export function sessionDatabase(db: DatabaseSync) {
     'SELECT 1 FROM teacher_turn_locks WHERE scope LIKE ? AND expires_at > ? LIMIT 1',
   );
 
-  function load(id: string): StoredSession | undefined {
-    const row = get.get(id) as
-      | { id: string; state: TeachingState; lastPlayed: number; snapshot_json: string }
-      | undefined;
-    if (!row) return undefined;
-    const { snapshot_json, ...fields } = row;
-    return { ...fields, queue: JSON.parse(snapshot_json) as QueueData };
-  }
-
   return {
-    load,
+    ...reader,
     latest(courseId: string, lessonId: string) {
       const row = latest.get(courseId, lessonId);
-      return typeof row?.id === 'string' ? load(row.id) : undefined;
+      return typeof row?.id === 'string' ? reader.load(row.id) : undefined;
     },
     hasUnversioned(courseId: string, lessonId: string) {
       return Boolean(unversioned.get(courseId, lessonId));
@@ -171,29 +212,20 @@ export function sessionDatabase(db: DatabaseSync) {
       const row = lastEvent.get(id, kind);
       return typeof row?.payload_json === 'string' ? JSON.parse(row.payload_json) : undefined;
     },
-    records(id: string) {
-      return records
-        .all(id)
-        .map(({ payload_json }) => JSON.parse(String(payload_json)) as LessonRecord);
-    },
     diagnostics(id: string) {
       const transitions: TeachingTransition[] = [];
       const spans: LessonTraceSpan[] = [];
       const teacherTurns: TeacherTurnTrace[] = [];
-      const playedStepIds: number[] = [];
       for (const { kind, payload_json } of diagnosticEvents.all(id)) {
         const payload: unknown = JSON.parse(String(payload_json));
         if (kind === 'state') transitions.push(payload as TeachingTransition);
         else if (kind === 'teacher-turn') teacherTurns.push(payload as TeacherTurnTrace);
-        else if (kind === 'played-step') {
-          const stepId = (payload as { step_id?: unknown }).step_id;
-          if (typeof stepId === 'number') playedStepIds.push(stepId);
-        } else spans.push(payload as LessonTraceSpan);
+        else spans.push(payload as LessonTraceSpan);
       }
       return {
         transitions,
         spans,
-        playedStepIds,
+        playedStepIds: reader.playedStepIds(id).filter((step) => typeof step === 'number'),
         ...(teacherTurns.length ? { teacherTurns } : {}),
       };
     },
@@ -204,17 +236,6 @@ export function sessionDatabase(db: DatabaseSync) {
       db.exec('BEGIN IMMEDIATE');
       try {
         const result = write();
-        db.exec('COMMIT');
-        return result;
-      } catch (error) {
-        db.exec('ROLLBACK');
-        throw error;
-      }
-    },
-    readTransaction<T>(read: () => T): T {
-      db.exec('BEGIN');
-      try {
-        const result = read();
         db.exec('COMMIT');
         return result;
       } catch (error) {

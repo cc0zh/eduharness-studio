@@ -72,10 +72,14 @@ export {
 } from './offline-rubric.js';
 export { offlineLesson } from './offline-scripts.js';
 export {
+  assertJudgeTextSafe,
   type DialogueEvent,
+  type EvidenceMessage,
+  JudgeProjectionError,
   type PlayedDialogue,
   type PublicDialogueTurn,
   projectActionsToPublicDialogue,
+  projectEvidenceMessages,
   projectPlayedDialogue,
 } from './projection.js';
 export {

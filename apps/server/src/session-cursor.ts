@@ -16,6 +16,10 @@ import type { ResumeSchema } from './session-input.js';
 export type CursorError = { error: 'session_not_found' | 'stale_generation' | 'unexpected_step' };
 export type SessionCursor = ReturnType<typeof sessionCursor>;
 
+export function playedSessionActions({ lastPlayed, queue }: StoredSession) {
+  return queue.script.actions.filter(({ step_id }) => step_id <= lastPlayed);
+}
+
 export function sessionCursor(store: ReturnType<typeof sessionDatabase>) {
   function transition(session: StoredSession, to: TeachingState) {
     if (session.state === to) return;
@@ -29,15 +33,13 @@ export function sessionCursor(store: ReturnType<typeof sessionDatabase>) {
     session.state = to;
   }
 
-  function played({ lastPlayed, queue }: StoredSession) {
-    return queue.script.actions.filter(({ step_id }) => step_id <= lastPlayed);
-  }
-
   function keypoints(session: StoredSession) {
     return session.queue.teacher
       ? {
-          keypoints: projectKeypointProgress(session.queue.script.keypoints, played(session))
-            .keypoints,
+          keypoints: projectKeypointProgress(
+            session.queue.script.keypoints,
+            playedSessionActions(session),
+          ).keypoints,
         }
       : {};
   }
@@ -48,7 +50,7 @@ export function sessionCursor(store: ReturnType<typeof sessionDatabase>) {
       session_id: id,
       generation: queue.generation,
       last_played_step_id: lastPlayed,
-      playedActions: played(session),
+      playedActions: playedSessionActions(session),
       records: store.records(id),
       state,
       askStep: queue.askStep,
@@ -139,5 +141,15 @@ export function sessionCursor(store: ReturnType<typeof sessionDatabase>) {
     return snapshot(session);
   }
 
-  return { transition, played, keypoints, snapshot, supersede, owned, record, acknowledge, claim };
+  return {
+    transition,
+    played: playedSessionActions,
+    keypoints,
+    snapshot,
+    supersede,
+    owned,
+    record,
+    acknowledge,
+    claim,
+  };
 }
