@@ -10,6 +10,7 @@ import { startBrowserFixture } from '../browser-fixture.mjs';
 import { offlineServerEnv } from '../studio-test-env.mjs';
 import { browserNetworkTrap, monitorPage } from './browser-network.mjs';
 import { playScene } from './play-scene.mjs';
+import { SceneStop } from './scene-stop.mjs';
 import { fauxKey, startScriptedModel } from './scripted-model.mjs';
 
 async function listen(app) {
@@ -43,17 +44,24 @@ export function writeJson(path, data) {
   writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`, { flag: 'wx' });
 }
 
-export async function captureScene(scene, directory, settings, budget, signal) {
+export async function captureScene(
+  scene,
+  directory,
+  settings,
+  budget,
+  signal,
+  startModel = startScriptedModel,
+) {
   mkdirSync(directory);
   const databasePath = join(directory, 'studio.sqlite');
   const isFaux = settings.mode === 'faux';
-  const before = budget.total();
   const cleanup = [];
   const failures = [];
   let trap;
+  let monitor;
   let evidence;
   try {
-    const mock = isFaux ? await startScriptedModel(scene) : undefined;
+    const mock = isFaux ? await startModel(scene) : undefined;
     if (mock) cleanup.unshift(mock.close);
     trap = await browserNetworkTrap();
     cleanup.unshift(trap.close);
@@ -81,19 +89,16 @@ export async function captureScene(scene, directory, settings, budget, signal) {
       },
     );
     const { page, url } = fixture;
-    const monitor = await monitorPage(
+    cleanup.unshift(() => page.close());
+    monitor = await monitorPage(
       page,
       (target) => target.origin === url || target.origin === url.replace('http:', 'ws:'),
     );
     const lesson = await playScene(fixture, scene, directory, isFaux);
-    monitor.verify();
-    budget.assertHealthy();
-    const posts = budget.total() - before;
+    const posts = budget.postsFor(scene.id);
     const faux = mock?.verify(posts);
     if (isFaux && scene.cut) assert.equal(faux.anchor, lesson.cut.step);
     evidence = { scene: scene.id, mode: settings.mode, ...lesson, posts, faux, ...monitor.counts };
-    await page.close();
-    monitor.verify();
   } catch (error) {
     failures.push(error);
   } finally {
@@ -104,6 +109,15 @@ export async function captureScene(scene, directory, settings, budget, signal) {
         failures.push(error);
       }
     }
+  }
+  const [firstFailure] = failures;
+  try {
+    monitor?.verify(
+      isFaux,
+      firstFailure instanceof SceneStop ? firstFailure.responseUrl : undefined,
+    );
+  } catch (error) {
+    failures.push(error);
   }
   if (failures.length === 1) throw failures[0];
   if (failures.length) throw new AggregateError(failures, 'Capture and cleanup failed');

@@ -1,11 +1,29 @@
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { errors } from 'playwright';
 import { liveAnswerFits } from './mode.mjs';
+import { SceneStop } from './scene-stop.mjs';
 
 const classroom = '[data-session-id]';
 const ask = '[data-ask-card]';
 const button = (page, name) => page.getByRole('button', { name, exact: true });
+
+async function afterModelAction(page, action, matches, stage) {
+  const [response] = await Promise.all([page.waitForResponse(matches), action()]);
+  if (response.status() === 502) throw new SceneStop('no_handoff', stage, response.url());
+  assert.ok(response.ok(), `Unexpected HTTP ${response.status()} during ${stage}`);
+  return response;
+}
+
+async function waitForHandoff(work, isFaux, reason) {
+  try {
+    await work;
+  } catch (error) {
+    if (!isFaux && error instanceof errors.TimeoutError) throw new SceneStop('no_handoff', reason);
+    throw error;
+  }
+}
 
 async function enter(page, url, topic, isFaux) {
   await page.goto(url);
@@ -15,29 +33,59 @@ async function enter(page, url, topic, isFaux) {
   await page.getByText('我是初学者', { exact: true }).click();
   await button(page, '下一步').click();
   await page.getByText('弄懂核心概念', { exact: true }).click();
-  if (!isFaux) page.setDefaultTimeout(100_000);
-  await button(page, '生成课程蓝图').click();
+  const generate = () => button(page, '生成课程蓝图').click();
+  if (isFaux) await generate();
+  else {
+    page.setDefaultTimeout(100_000);
+    await afterModelAction(
+      page,
+      generate,
+      (res) => res.url() === `${url}/api/intake/generate` && res.request().method() === 'POST',
+      'course_generation_failed',
+    );
+  }
   const entry = page.getByRole('link', { name: '进入白板', exact: true }).first();
   const path = await entry.getAttribute('href');
   assert.match(path, /\/lessons\/u1-l1$/);
-  await entry.click();
+  if (isFaux) await entry.click();
+  else {
+    const lessonUrl = `${url}/api${path}`;
+    await afterModelAction(
+      page,
+      () => entry.click(),
+      (res) =>
+        (res.url() === lessonUrl && res.request().method() === 'GET' && !res.ok()) ||
+        (res.url() === `${lessonUrl}/sessions` && res.request().method() === 'POST'),
+      'lesson_generation_failed',
+    );
+  }
   const { sessionId } = await page.locator(classroom).evaluate((node) => ({ ...node.dataset }));
   assert.ok(sessionId);
   return { path, sessionId };
 }
 
 async function read(page, url) {
-  const response = await page.request.get(url, { timeout: 5_000 });
+  const response = await page.request.get(url, { timeout: 5_000, maxRedirects: 0 });
   assert.equal(response.status(), 200);
   return response.json();
 }
 
-async function handoff(page, activePath, expected) {
-  const prompt = page.locator(`${ask} #ask-prompt`);
-  await prompt.waitFor({ timeout: 35_000 });
+async function handoff(page, activePath, isFaux, expected, previousStep) {
+  const scope =
+    previousStep === undefined
+      ? ask
+      : `${classroom}:not([data-played-step="${previousStep}"]) ${ask}`;
+  const prompt = page.locator(`${scope} #ask-prompt`);
+  await waitForHandoff(prompt.waitFor({ timeout: 35_000 }), isFaux, 'ask_not_visible');
   if (expected) assert.equal(await prompt.textContent(), expected);
-  await page.locator(`${ask} textarea:enabled`).waitFor();
+  await waitForHandoff(
+    page.locator(`${scope} textarea:enabled`).waitFor(isFaux ? undefined : { timeout: 35_000 }),
+    isFaux,
+    'answer_not_ready',
+  );
   const snapshot = await read(page, activePath);
+  if (!isFaux && snapshot.state !== 'handoff')
+    throw new SceneStop('no_handoff', 'handoff_not_confirmed');
   assert.equal(snapshot.state, 'handoff');
   assert.equal(snapshot.askStep, snapshot.last_played_step_id);
   assert.equal(snapshot.playedActions.at(-1).prompt, await prompt.textContent());
@@ -56,7 +104,17 @@ async function advanceBeat(page) {
 
 async function interrupt({ page, tracePath, activePath, input, cut, isFaux }) {
   // Wait for the player, pause it, then ensure the visible cursor has reached its ACK.
-  await button(page, '暂停').click();
+  const pause = button(page, '暂停');
+  if (!isFaux) {
+    await waitForHandoff(
+      pause.or(page.locator(ask)).first().waitFor(),
+      false,
+      'no_interrupt_window',
+    );
+    if (await page.locator(ask).isVisible())
+      throw new SceneStop('script_deviation', 'interrupt_window_closed');
+  }
+  await pause.click();
   if (!(await page.locator(`${classroom}[data-played-step]:not([data-played-step="0"])`).count()))
     await advanceBeat(page);
   if (isFaux) await page.getByRole('heading', { name: cut.anchor, exact: true }).waitFor();
@@ -70,17 +128,22 @@ async function interrupt({ page, tracePath, activePath, input, cut, isFaux }) {
   );
   const before = await read(page, tracePath);
   const queued = before.queued.map(({ step_id }) => step_id);
+  if (!isFaux && queued.length === 0)
+    throw new SceneStop('script_deviation', 'no_queued_beats_to_interrupt');
   assert.ok(step > 0 && queued.length > 0 && queued.every((id) => id > step));
   if (isFaux) {
     assert.ok(before.queued.some(({ type }) => type === 'board'));
     assert.equal(await page.getByRole('heading', { name: cut.unplayed, exact: true }).count(), 0);
   }
   await page.getByRole('textbox', { name: '打断插话' }).fill(input);
-  const pending = page.waitForResponse(
-    (res) => res.url() === tracePath.replace(/\/xray$/, '/interrupt'),
-  );
-  await button(page, '插话').click();
-  const response = await pending;
+  const submit = () => button(page, '插话').click();
+  const matches = (res) => res.url() === tracePath.replace(/\/xray$/, '/interrupt');
+  let response;
+  if (isFaux) {
+    [response] = await Promise.all([page.waitForResponse(matches), submit()]);
+  } else {
+    response = await afterModelAction(page, submit, matches, 'interrupt_generation_failed');
+  }
   assert.equal(response.status(), 200);
   const updated = await response.json();
   const record = updated.records.at(-1);
@@ -91,7 +154,7 @@ async function interrupt({ page, tracePath, activePath, input, cut, isFaux }) {
   assert.deepEqual(record.truncated_step_ids, queued);
   await page.locator(`${classroom}[data-generation="${before.generation + 1}"]`).waitFor();
   for (let n = 0; n < 20 && !(await page.locator(ask).isVisible()); n++) await advanceBeat(page);
-  const snapshot = await handoff(page, activePath);
+  const snapshot = await handoff(page, activePath, isFaux);
   const continued = snapshot.playedActions.filter(({ step_id }) => step_id > step);
   assert.ok(
     continued.length > 0 && continued.every(({ step_id }) => step_id > Math.max(...queued)),
@@ -167,7 +230,12 @@ export async function playScene({ page, url }, scene, directory, isFaux) {
   let cut;
   const checkpoints = [];
   if (!scene.cut)
-    snapshot = await handoff(page, activePath, isFaux ? scene.opening.next_ask.prompt : undefined);
+    snapshot = await handoff(
+      page,
+      activePath,
+      isFaux,
+      isFaux ? scene.opening.next_ask.prompt : undefined,
+    );
   for (const [index, turn] of scene.turns.entries()) {
     if (turn.kind === 'interrupt') {
       ({ snapshot, cut } = await interrupt({
@@ -186,12 +254,30 @@ export async function playScene({ page, url }, scene, directory, isFaux) {
           `${JSON.stringify({ sessionId, step: snapshot.last_played_step_id, turn: index + 1 })}\n`,
           { flag: 'wx' },
         );
-        throw new Error(`${scene.id}: live ask does not match scripted input; capture stopped`);
+        throw new SceneStop('script_deviation', 'ask_does_not_match_script');
       }
       await page.getByRole('textbox', { name: '写下你的回答' }).fill(turn.input);
-      await button(page, '提交回答').click();
-      await page.locator(ask).waitFor({ state: 'hidden' });
-      snapshot = await handoff(page, activePath, isFaux ? turn.output.next_ask.prompt : undefined);
+      const submit = () => button(page, '提交回答').click();
+      if (isFaux) {
+        await submit();
+        await page.locator(ask).waitFor({ state: 'hidden' });
+      } else {
+        await afterModelAction(
+          page,
+          submit,
+          (res) =>
+            res.url() === tracePath.replace(/\/xray$/, '/answer') &&
+            res.request().method() === 'POST',
+          'answer_generation_failed',
+        );
+      }
+      snapshot = await handoff(
+        page,
+        activePath,
+        isFaux,
+        isFaux ? turn.output.next_ask.prompt : undefined,
+        isFaux ? undefined : snapshot.last_played_step_id,
+      );
     }
     assert.equal(snapshot.records.filter(({ text }) => text === turn.input).length, 1);
     const trace = await read(page, tracePath);
@@ -238,7 +324,11 @@ export async function playScene({ page, url }, scene, directory, isFaux) {
     })),
   );
   const qualityPath = tracePath.replace(/\/xray$/, '/quality');
-  const response = await page.request.post(qualityPath, { data: {}, timeout: 5_000 });
+  const response = await page.request.post(qualityPath, {
+    data: {},
+    timeout: 5_000,
+    maxRedirects: 0,
+  });
   assert.equal(response.status(), 200);
   const quality = await response.json();
   assert.equal(quality.last_played_step_id, snapshot.last_played_step_id);

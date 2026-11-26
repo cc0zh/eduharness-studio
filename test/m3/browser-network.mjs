@@ -22,10 +22,11 @@ export async function browserNetworkTrap() {
 export async function monitorPage(page, allows) {
   const counts = { consoleErrors: 0, pageErrors: 0, nonLoopbackRequests: 0 };
   const details = [];
+  const consoleErrors = [];
   page.on('console', (message) => {
     if (message.type() !== 'error') return;
     counts.consoleErrors++;
-    details.push(message.text());
+    consoleErrors.push({ text: message.text(), url: message.location().url });
   });
   page.on('pageerror', (error) => {
     counts.pageErrors++;
@@ -45,8 +46,21 @@ export async function monitorPage(page, allows) {
   });
   return {
     counts,
-    verify() {
-      assert.deepEqual(Object.values(counts), [0, 0, 0], details.join('\n'));
+    verify(isFaux, failedModelUrl) {
+      assert.equal(counts.nonLoopbackRequests, 0, 'Unexpected browser network request');
+      assert.equal(counts.pageErrors, 0, isFaux ? details.join('\n') : 'Unexpected page error');
+      // Chromium can report the known generation 502 as a console resource error.
+      const unexpected = consoleErrors.filter(
+        ({ text, url }) =>
+          !failedModelUrl ||
+          url !== failedModelUrl ||
+          !/^Failed to load resource: .*\b502\b/.test(text),
+      );
+      assert.equal(
+        unexpected.length,
+        0,
+        isFaux ? unexpected.map(({ text }) => text).join('\n') : 'Unexpected browser console error',
+      );
     },
   };
 }

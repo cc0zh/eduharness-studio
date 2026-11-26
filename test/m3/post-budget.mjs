@@ -1,4 +1,24 @@
 import { appendFileSync, writeFileSync } from 'node:fs';
+import { assertLivePostLimit, liveSceneLimits } from './mode.mjs';
+import { SceneStop } from './scene-stop.mjs';
+
+function singlePostOptions(input, init) {
+  const request = input instanceof Request ? input : undefined;
+  const value = init?.body ?? request?.body ?? '';
+  const data = new Response(value);
+  const headers = new Headers(init?.headers ?? request?.headers);
+  const type = data.headers.get('content-type');
+  if (type && !headers.has('content-type')) headers.set('content-type', type);
+  if (
+    (typeof value === 'string' || value instanceof Uint8Array) &&
+    !headers.has('content-length')
+  ) {
+    headers.set('content-length', String(Buffer.byteLength(value)));
+  }
+  // Undici can retry a replayable Fetch body on 421 despite redirect:'error'.
+  // A stream has no replay source: one reservation can send at most one POST.
+  return { ...init, headers, body: data.body, duplex: 'half', redirect: 'error' };
+}
 
 function observeSse(response, signal, outcome) {
   const reader = response.body.getReader();
@@ -36,28 +56,45 @@ function observeSse(response, signal, outcome) {
   });
 }
 
-export function postBudget(file, limit) {
-  if (!Number.isSafeInteger(limit) || limit < 1)
+export function postBudget(file, { mode, limit }) {
+  const live = mode === 'live';
+  if (live) assertLivePostLimit(limit);
+  else if (mode !== 'faux') throw new Error('Unknown POST budget mode');
+  else if (!Number.isSafeInteger(limit) || limit < 1)
     throw new Error('Model POST limit must be a positive safe integer');
+  // One fresh ledger per run, never truncate or reopen last run's allowance.
   writeFileSync(file, '', { flag: 'wx' });
   let reserved = 0;
   let stopped;
+  const sceneCounts = new Map();
+  const blockedScenes = new Set();
+  const postsFor = (scene) => sceneCounts.get(scene) ?? 0;
   function record(fields) {
-    appendFileSync(file, `${JSON.stringify({ at: new Date().toISOString(), ...fields })}\n`);
+    try {
+      appendFileSync(file, `${JSON.stringify({ at: new Date().toISOString(), ...fields })}\n`);
+    } catch (cause) {
+      // SDKs can translate transport exceptions into application errors. Keep I/O fatal.
+      stopped = new Error('Model POST ledger write failed', { cause });
+      throw stopped;
+    }
   }
-  function stop(event, scene) {
+  function stop(event, scene, fields) {
     if (!stopped) {
-      stopped = event;
-      record({ event, scene, total: reserved });
+      stopped = new Error(`Model POST fuse: ${event}`);
+      record({ event, scene, total: reserved, ...fields });
     }
   }
   function assertHealthy() {
-    if (stopped) throw new Error(`Model POST fuse: ${stopped}`);
+    if (stopped) throw stopped;
   }
   return {
     total: () => reserved,
+    postsFor,
+    sceneBlocked: (scene) => blockedScenes.has(scene),
+    sceneLimitReached: (scene) => live && postsFor(scene) >= liveSceneLimits[scene],
     assertHealthy,
     fetchFor(scene, endpoint, send = globalThis.fetch) {
+      if (live && !Object.hasOwn(liveSceneLimits, scene)) throw new Error('Unapproved live scene');
       return async (input, init) => {
         assertHealthy();
         const url = input instanceof Request ? input.url : String(input);
@@ -68,25 +105,49 @@ export function postBudget(file, limit) {
           assertHealthy();
         }
         if (reserved >= limit) {
-          stop('budget_exhausted', scene);
+          stop('budget_exhausted', scene, { scope: 'total', limit });
           assertHealthy();
         }
-        const seq = ++reserved;
+        const scenePosts = postsFor(scene);
+        const sceneLimit = liveSceneLimits[scene];
+        if (live && scenePosts >= sceneLimit) {
+          if (!blockedScenes.has(scene))
+            record({
+              event: 'budget_exhausted',
+              scope: 'scene',
+              scene,
+              scenePosts,
+              limit: sceneLimit,
+            });
+          blockedScenes.add(scene);
+          throw new SceneStop('budget_exhausted', 'scene_post_limit');
+        }
+        const seq = reserved + 1;
+        const sceneSeq = scenePosts + 1;
         const log = (event, fields = {}) => record({ scene, seq, event, ...fields });
         // Reserve synchronously before dispatch, never refund on a failed or released response.
-        log('reserved');
+        log('reserved', { sceneSeq });
+        reserved = seq;
+        sceneCounts.set(scene, sceneSeq);
         const outcome = (event) => {
           log(event);
           if (event === 'transport_failure') stop('transport_stopped', scene);
         };
         let response;
         try {
-          response = await send(input, { ...init, redirect: 'error' });
+          response = await send(
+            input,
+            live ? singlePostOptions(input, init) : { ...init, redirect: 'error' },
+          );
         } catch {
           outcome(signal?.aborted ? 'request_aborted' : 'transport_failure');
           throw new Error('Model POST failed before response headers');
         }
         log('headers', { status: response.status });
+        if (live && [401, 403, 407].includes(response.status)) {
+          stop('model_auth_failed', scene);
+          assertHealthy();
+        }
         return response.ok &&
           response.body &&
           response.headers.get('content-type')?.includes('text/event-stream')
