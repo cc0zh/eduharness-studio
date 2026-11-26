@@ -191,10 +191,10 @@ async function freePorts(count) {
 
 export async function startBrowserFixture(
   t,
-  { useNpmDev, serverEntry, env: overrides = {}, webEnvironment } = {},
+  { useNpmDev, serverEntry, env: overrides = {}, webEnvironment, capture } = {},
 ) {
   const directory = mkdtempSync(join(tmpdir(), 'eduharness-browser-'));
-  const database = join(directory, 'studio.sqlite');
+  const database = capture?.database ?? join(directory, 'studio.sqlite');
   const nodes = [];
   const ports = new Set();
   let launching;
@@ -257,7 +257,7 @@ export async function startBrowserFixture(
       remaining,
       database,
       databaseExisted,
-      databaseDeleted: !existsSync(directory),
+      databaseDeleted: !existsSync(database),
     };
     console.log(`Browser cleanup ${JSON.stringify(cleanup)}`);
     assert.deepEqual(
@@ -266,7 +266,8 @@ export async function startBrowserFixture(
     );
     assert.deepEqual(listening, []);
     assert.deepEqual(remaining, []);
-    assert.ok(cleanup.databaseDeleted);
+    assert.ok(!existsSync(directory));
+    if (!capture) assert.ok(cleanup.databaseDeleted);
   });
 
   const env = {
@@ -293,13 +294,16 @@ export async function startBrowserFixture(
     ]);
     webPort = web;
   } else {
-    const api = startNode(['--import', 'tsx', serverEntry ?? 'apps/server/src/index.ts'], {
-      ...env,
-      PORT: '0',
-    });
-    nodes.push(api);
-    const apiPort = await api.port(apiLine, signal);
-    ports.add(apiPort);
+    let apiPort = capture?.port;
+    if (!apiPort) {
+      const server = startNode(['--import', 'tsx', serverEntry ?? 'apps/server/src/index.ts'], {
+        ...env,
+        PORT: '0',
+      });
+      nodes.push(server);
+      apiPort = await server.port(apiLine, signal);
+      ports.add(apiPort);
+    }
     signal.throwIfAborted();
     const [allocated] = await freePorts(1);
     ports.add(allocated);
@@ -332,11 +336,15 @@ export async function startBrowserFixture(
   );
 
   signal.throwIfAborted();
-  launching = chromium.launchServer({ timeout: 15_000 });
+  launching = chromium.launchServer({ timeout: 15_000, ...capture?.chrome });
   const chrome = await launching;
   signal.throwIfAborted();
   const browser = await chromium.connect(chrome.wsEndpoint(), { timeout: 8_000 });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, locale: 'zh-CN' });
+  const page = await browser.newPage({
+    viewport: { width: 1440, height: 1000 },
+    locale: 'zh-CN',
+    ...(capture && { serviceWorkers: 'block' }),
+  });
   page.setDefaultTimeout(6_000);
   page.setDefaultNavigationTimeout(15_000);
   const errors = [];

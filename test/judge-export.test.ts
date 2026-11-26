@@ -5,13 +5,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
-import {
-  BAYES_DEMO_ID,
-  type EvidenceMessage,
-  type SessionQuality,
-} from '@eduharness-studio/engine';
+import { BAYES_DEMO_ID, type EvidenceMessage } from '@eduharness-studio/engine';
 import { fauxAssistantMessage, fauxToolCall } from '@eduharness-studio/engine/models';
 import { byokSentinel, exportClassroom } from './judge-export-fixture.js';
+import { assertPublicMatch } from './judge-public-match.mjs';
 import { offlineServerEnv } from './studio-test-env.mjs';
 import { lessonDraft, opening } from './teacher-test-support.js';
 
@@ -77,28 +74,6 @@ function readArtifacts(out: string, result: ReturnType<typeof cli>) {
     );
   }
   return { plan: JSON.parse(planBytes) as Plan, manifest: JSON.parse(manifestBytes) as Manifest };
-}
-
-function assertPublicMatch(transcript: EvidenceMessage[], quality: SessionQuality) {
-  assert.deepEqual(
-    transcript.slice(1).map(({ role, text }) => ({ role, text })),
-    quality.dialogue.turns.map(({ role, text, interrupted }) => ({
-      role,
-      text: interrupted ? `[含插话]\n${text}` : text,
-    })),
-  );
-  assert.ok(
-    quality.dialogue.turns.every(({ evidenceStepIds }) =>
-      evidenceStepIds.every((id) => id <= quality.last_played_step_id),
-    ),
-  );
-  for (const [index, message] of transcript.entries()) {
-    assert.deepEqual(Object.keys(message).sort(), ['id', 'role', 'text', 'turn']);
-    assert.equal(message.turn, Math.ceil(index / 2));
-    assert.equal(message.role, index % 2 ? 'teacher' : 'learner');
-  }
-  assert.equal(new Set(transcript.map(({ id }) => id)).size, transcript.length);
-  assert.equal(transcript.at(-1)?.role, 'teacher');
 }
 
 function databaseHashes(path: string) {

@@ -15,6 +15,7 @@
     "prepare": "node scripts/setup-hooks.mjs",
     "dev": "node scripts/dev.mjs",
     "export:judge": "tsx apps/server/src/judge-export.ts",
+    "m3:rehearse": "node --import tsx test/m3-rehearsal.mjs",
     "build": "npm --workspace @eduharness-studio/web run build",
     "lint": "biome check .",
     "format": "biome check --write .",

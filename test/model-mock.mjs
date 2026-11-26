@@ -130,6 +130,24 @@ function teacherAnswer(classroom) {
   };
 }
 
+export function sendModelTool(res, name, args) {
+  const delta = {
+    role: 'assistant',
+    tool_calls: [
+      {
+        index: 0,
+        id: `call_${name}`,
+        type: 'function',
+        function: { name, arguments: typeof args === 'string' ? args : JSON.stringify(args) },
+      },
+    ],
+  };
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.end(
+    `data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason: 'tool_calls' }] })}\n\ndata: [DONE]\n\n`,
+  );
+}
+
 export async function startModelMock(
   t,
   { teacher = false, courses = true, unlockDelayMs = 0, graph = 'safe' } = {},
@@ -277,21 +295,7 @@ export async function startModelMock(
             arguments: JSON.stringify({ value: 'loopback-ok' }),
           };
         }
-        res.setHeader('Content-Type', 'text/event-stream');
-        const delta = {
-          role: 'assistant',
-          tool_calls: [
-            {
-              index: 0,
-              id: teacher && functionCall.name === 'calc_verify' ? 'call_calc_verify' : 'call_test',
-              type: 'function',
-              function: functionCall,
-            },
-          ],
-        };
-        res.end(
-          `data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason: 'tool_calls' }] })}\n\ndata: [DONE]\n\n`,
-        );
+        sendModelTool(res, functionCall.name, functionCall.arguments);
         break;
       }
       default:
