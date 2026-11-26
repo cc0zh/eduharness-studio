@@ -4,3 +4,4 @@
 
 - [演播证据以上屏为准](2026-11/played-evidence.md)
 - [模型密钥不得经 SDK 日志泄露](2026-11/model-credential-boundary.md)
+- [真机验收区分传输故障与消费结束，续跑前保全现场](2026-11/live-acceptance-evidence.md)
