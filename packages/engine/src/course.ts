@@ -256,9 +256,14 @@ export function createCourseLessonPlanner(
         generation: 1,
         seed: `${course.id}:${lesson.id}`,
       };
-      const checked = compileTeacherTurn(opening, result.value.opening);
+      const checked = compileTeacherTurn(opening, result.value.opening, captured.calculations);
       if (!checked.ok) {
-        guardrails.push({ attempt, reasons: checked.reasons.slice(0, 20) });
+        guardrails.push({
+          attempt,
+          reasons: checked.reasons
+            .slice(0, 20)
+            .map((reason) => reason.replaceAll('$.panels[', '$.opening.panels[')),
+        });
         continue;
       }
       const { actions, graph } = await materializeTeacherGraph(checked, graphOptions, true);

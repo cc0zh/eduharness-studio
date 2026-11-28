@@ -12,6 +12,7 @@ import {
   schemaReasons,
   sensitiveOutputReason,
 } from './structured-model-output.js';
+import { bindTeacherNumbers } from './teacher-bindings.js';
 import { oneLine, type TeacherTurnContext, teacherAnswerEvidence } from './teacher-context.js';
 import { guardTeacherTurn } from './teacher-guardrails.js';
 import {
@@ -23,6 +24,7 @@ import {
 import { teacherTurnPolicy } from './teacher-policy.js';
 import type { TeacherTurnTrace } from './teacher-protocol.js';
 import type { TeacherGraphDraft } from './teacher-semantics.js';
+import type { TeacherCalculation } from './teacher-tools.js';
 
 function boardPlacement(played: readonly Action[]) {
   let column = 0;
@@ -191,13 +193,20 @@ function compileTeacherBudgetClose(context: TeacherTurnContext, pacing: TeacherP
 }
 
 /** Compile normalized teaching semantics without IO, clock reads or random state. */
-export function compileTeacherTurn(context: TeacherTurnContext, scene?: unknown) {
-  if (hasSensitiveFields(scene)) return reject([sensitiveOutputReason]);
+export function compileTeacherTurn(
+  context: TeacherTurnContext,
+  draft?: unknown,
+  calculations: readonly TeacherCalculation[] = [],
+) {
+  if (hasSensitiveFields(draft)) return reject([sensitiveOutputReason]);
   const policy = teacherTurnPolicy(context);
   if (policy.phase === 'budget-close') return compileTeacherBudgetClose(context, policy.pacing);
   const { schema } = policy;
-  if (!Value.Check(schema, scene)) return reject(schemaReasons(schema, scene));
-  const checked = guardTeacherTurn(context, scene, policy);
+  if (!Value.Check(schema, draft)) return reject(schemaReasons(schema, draft));
+  const bound = bindTeacherNumbers(draft);
+  if (!bound.ok) return bound;
+  const { scene } = bound;
+  const checked = guardTeacherTurn(context, scene, policy, calculations);
   if (!checked.ok) return checked;
 
   const { played } = context;
@@ -240,8 +249,8 @@ export function compileTeacherTurn(context: TeacherTurnContext, scene?: unknown)
     const card_id = allocate('panel');
     const mark =
       panel.highlight && panel.content.includes(panel.highlight) ? panel.highlight : undefined;
-    // An image replaces the board body and cannot display a text mark. Never emit invisible evidence.
-    if (panel.diagram && !mark) {
+    // An image replaces the board body and cannot display a mark or the quoted example.
+    if (panel.diagram && !mark && !panel.quoted_error) {
       illustration = { index: actions.length, request: { ...panel.diagram, title: panel.title } };
     }
     emit({
@@ -249,7 +258,9 @@ export function compileTeacherTurn(context: TeacherTurnContext, scene?: unknown)
       column: ++column,
       card_id,
       title: panel.title,
-      content: panel.content,
+      content: panel.quoted_error
+        ? `${panel.content}\n\n**学生错算 / 反例（仅作对照）**\n\n${panel.quoted_error}`
+        : panel.content,
       depth: teachingPoint.depth,
       ...(panel.formula === undefined ? {} : { formula: panel.formula }),
     });

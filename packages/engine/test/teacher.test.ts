@@ -12,7 +12,6 @@ import {
   masteredScene,
   offeredToolNames,
   scene,
-  withAuditRejections,
 } from './teacher-scene-fixture.js';
 
 function toolText(message: { content: readonly { type: string; text?: string }[] }) {
@@ -221,13 +220,16 @@ test('teacher corrections use only the latest safe diagnostic, never credential 
 
 test('teacher gets one calc_verify after arithmetic rejection even if its initial budget was spent', async () => {
   const { gateway, setResponses, state } = localFaux();
-  const numeric = 'ARITHMETIC_VALIDATION_FAILED at panels[0].formula';
+  const numeric = 'numeric arithmetic at $.panels[0].formula: 9900, not 9000';
   const verified = scene();
   const initialCalc = fauxNativeCall('calc_verify', { expression: '2 + 3' });
   setResponses([
     initialCalc,
     initialCalc,
-    fauxResult(verified),
+    fauxResult({
+      ...verified,
+      panels: [{ ...verified.panels[0], formula: '10000-100=9000' }],
+    }),
     (request) => {
       assert.deepEqual(offeredToolNames(request.messages), ['emit_result', 'calc_verify']);
       assert.ok(JSON.stringify(request.messages).includes(numeric));
@@ -243,17 +245,61 @@ test('teacher gets one calc_verify after arithmetic rejection even if its initia
     (request) => {
       assert.deepEqual(offeredToolNames(request.messages), ['emit_result']);
       assert.match(JSON.stringify(request.messages), /choice labels must be distinct/);
-      assert.doesNotMatch(JSON.stringify(request.messages), /ARITHMETIC_VALIDATION_FAILED/);
+      assert.doesNotMatch(JSON.stringify(request.messages), /numeric arithmetic/);
       return fauxResult(verified);
     },
   ]);
-  const accepted = await createTeacherPlanner(withAuditRejections(gateway, [numeric]), [
+  const accepted = await createTeacherPlanner(gateway, [
     calcVerifyTeacherTool,
     { ...calcVerifyTeacherTool, name: 'other_tool' },
   ])(context, []);
   assert.ok(accepted.ok);
   assert.equal(state.callCount, 6);
   assert.equal(accepted.spans.filter(({ kind }) => kind === 'tool').length, 3);
+});
+
+test('the teacher rewrites prose that drifts from an exact tool result in a labelled equality', async () => {
+  const { gateway, setResponses, state } = localFaux();
+  const draft = scene('clarifying');
+  const expression = '10000 - 100';
+  setResponses([
+    fauxNativeCall('calc_verify', { expression }),
+    fauxResult({
+      ...draft,
+      panels: [
+        {
+          title: '复核',
+          content: '计算结果为 9000 人。',
+          formula: String.raw`\text{健康人数}=10000-100=9900`,
+        },
+      ],
+    }),
+    (request) => {
+      const prompt = JSON.stringify(request.messages);
+      assert.match(prompt, /\$\.panels\[0\]\.content: 9000 conflicts with calc_verify result 9900/);
+      assert.doesNotMatch(prompt, /计算结果为 9000 人/);
+      assert.deepEqual(offeredToolNames(request.messages), ['emit_result', 'calc_verify']);
+      return fauxResult({
+        ...draft,
+        panels: [
+          {
+            title: '复核',
+            content: '计算结果为 {{healthy}} 人。',
+            formula: String.raw`\text{健康人数}=10000-100={{healthy}}`,
+            bindings: [{ key: 'healthy', expression }],
+          },
+        ],
+      });
+    },
+  ]);
+  const result = await createTeacherPlanner(gateway)(answeredContext, []);
+  assert.ok(result.ok);
+  assert.equal(state.callCount, 3);
+  assert.equal(result.trace.guardrails.length, 1);
+  assert.equal(
+    result.actions.find((action) => action.type === 'board')?.content,
+    '计算结果为 9900 人。',
+  );
 });
 
 test('faux student proceeds from a played ordinary question to a new transfer and then to mastery', async () => {

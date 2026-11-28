@@ -1,4 +1,5 @@
 import { KindGuard, type Static, type TSchema, Type } from '@sinclair/typebox';
+import { CalcVerifyParamsSchema } from './calc-verify.js';
 import { DepthTagSchema } from './protocol.js';
 import type { TeacherPacing } from './teacher-pacing.js';
 import { TeacherDiagnosisSchema, teacherText as text } from './teacher-protocol.js';
@@ -30,7 +31,32 @@ const boardFields = {
 };
 
 const PanelSchema = Type.Object(
-  { ...boardFields, diagram: Type.Optional(GraphDraftSchema) },
+  {
+    ...boardFields,
+    bindings: Type.Optional(
+      Type.Array(
+        Type.Object(
+          {
+            key: Type.String({ pattern: '^[a-z][a-z0-9_]{0,23}$' }),
+            ...CalcVerifyParamsSchema.properties,
+          },
+          strict,
+        ),
+        {
+          minItems: 1,
+          maxItems: 6,
+          description: '有数值推导时，为计算结果或重复使用的数声明算式；同一卡片用 {{key}} 引用。',
+        },
+      ),
+    ),
+    quoted_error: Type.Optional(
+      text(
+        280,
+        '仅放学生原话、错算或反例，可放 Markdown 表格。教师的正确推导单独写在正文、公式或字幕。',
+      ),
+    ),
+    diagram: Type.Optional(GraphDraftSchema),
+  },
   strict,
 );
 const panelList = {
