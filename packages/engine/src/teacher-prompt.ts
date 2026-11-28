@@ -2,6 +2,7 @@ import { projectKeypointProgress } from './lesson-playback.js';
 import type { PublicDialogueTurn } from './projection.js';
 import type { StructuredModelTool } from './structured-model.js';
 import { playedConclusions, type TeacherTurnContext } from './teacher-context.js';
+import { lessonBeatLimit } from './teacher-pacing.js';
 import { teacherCorrectionInstructions } from './teacher-retry.js';
 import { describeTeacherTurn, type TurnPhase, type TurnPolicy } from './teacher-semantics.js';
 import { teacherToolInstructions } from './teacher-tools.js';
@@ -18,12 +19,19 @@ const phaseInstructions: Record<TurnPhase, string> = {
   unverified:
     '学生明确跳过或连续敷衍；这个要点暂未验证。用具体线索衔接后续教学，不把它说成已掌握。',
   closing: '要点结果已上屏。先回应插话，然后根据已确认的内容收尾，不重复评定。',
+  'budget-close': '演播预算已进入收尾，由引擎记下未验证的要点并回顾，不再提问。',
 };
 
 export function teacherSceneInstructions(policy: TurnPolicy) {
+  const { playedBeats, openPoints, teachingBeats } = policy.pacing;
   return [
     '每轮提交一个教学分镜对象，省略不用的可选内容。授课围绕具体情境，不背书或堆砌定义。',
-    '按一堂 30–45 拍的微课组织讲解；通常用一块板书接一个判断，必要才展开，不重复已过关的内容。',
+    `以 30–45 个已上屏动作为目标；一课硬顶 ${lessonBeatLimit} 拍。翻页、板书、标记、字幕、提问和要点结果各占一拍；通常用一块板书接一个判断。`,
+    ...(policy.phase === 'opening'
+      ? []
+      : [
+          `已上屏 ${playedBeats} 拍，${openPoints} 个要点尚无结果。预留收尾后还可用 ${Math.max(0, teachingBeats)} 拍；登记结果会释放对应预留。空间不够时省略可选标记、字幕或第二块板书。`,
+        ]),
     phaseInstructions[policy.phase],
     describeTeacherTurn(policy),
   ].join('\n');

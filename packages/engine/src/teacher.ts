@@ -1,7 +1,7 @@
 import type { PublicDialogueTurn } from './projection.js';
 import type { LessonTraceSpan } from './session-protocol.js';
 import { type ModelGateway, ModelGenerationError } from './structured-model.js';
-import { compileTeacherTurn } from './teacher-compiler.js';
+import { type CompiledTeacherTurn, compileTeacherTurn } from './teacher-compiler.js';
 import type { TeacherTurnContext } from './teacher-context.js';
 import { materializeTeacherGraph, modelGraphOptions, teacherGraphSpan } from './teacher-graph.js';
 import { normalizeTeacherTurn } from './teacher-normalize.js';
@@ -19,6 +19,7 @@ export {
   type TeacherTurnContext,
 } from './teacher-context.js';
 export { teacherGraphSpan } from './teacher-graph.js';
+export { teacherBeatBudgetReason } from './teacher-pacing.js';
 export { teacherTurnPolicy } from './teacher-policy.js';
 export {
   type TeacherTurnOutput,
@@ -43,6 +44,27 @@ export function createTeacherPlanner(
       outcome: 'rejected',
     };
     const policy = teacherTurnPolicy(context);
+    const accepted = (checked: CompiledTeacherTurn, actions = checked.actions) => ({
+      ok: true as const,
+      actions,
+      keypoints: checked.keypoints,
+      initialState: checked.initialState,
+      progress: checked.progress,
+      trace: { ...trace, ...checked.trace, outcome: 'accepted' as const },
+      spans,
+    });
+    const invalid = () => ({
+      ok: false as const,
+      failure: 'teacher_invalid_output' as const,
+      trace,
+      spans,
+    });
+    if (policy.phase === 'budget-close') {
+      const checked = compileTeacherTurn(context);
+      if (checked.ok) return accepted(checked);
+      guardrails.push({ attempt: 1, reasons: checked.reasons });
+      return invalid();
+    }
     const captured = captureTeacherTools(tools, anchor, spans);
 
     for (let attempt = 1; attempt <= maxTeacherAttempts; attempt++) {
@@ -101,17 +123,9 @@ export function createTeacherPlanner(
         policy.phase === 'opening',
       );
       if (graph) spans.push(teacherGraphSpan(anchor.generation, graph));
-      return {
-        ok: true as const,
-        actions,
-        keypoints: checked.keypoints,
-        initialState: checked.initialState,
-        progress: checked.progress,
-        trace: { ...trace, ...checked.trace, outcome: 'accepted' as const },
-        spans,
-      };
+      return accepted(checked, actions);
     }
-    return { ok: false as const, failure: 'teacher_invalid_output' as const, trace, spans };
+    return invalid();
   };
 }
 
