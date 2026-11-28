@@ -1,7 +1,9 @@
 import { calcVerify } from './calc-verify.js';
 import type { TeacherTurnOutput } from './teacher-semantics.js';
 
-const placeholder = /\{\{\s*([a-z_][a-z\d_-]*)\s*\}\}/gi;
+// Reserve double braces regardless of the characters inside, allowing a balanced TeX group
+// around a template (e.g. \boxed{{{key}}}) without consuming that outer pair of braces.
+const placeholder = /\{\{([^{}]*)\}\}/g;
 
 function formulaAtom(value: string) {
   const [numerator, denominator] = value.split('/');
@@ -33,14 +35,17 @@ export function bindTeacherNumbers(scene: TeacherTurnOutput) {
       } else values.set(key, result.text);
     }
     const inline = (field: 'content' | 'formula' | 'voiceover', text: string) => {
-      const rendered = text.replace(placeholder, (token, key: string) => {
+      const at = `${path}.${field}`;
+      const rendered = text.replace(placeholder, (token, body: string) => {
+        const key = body.trim();
         const value = values.get(key);
         if (value !== undefined) return field === 'formula' ? formulaAtom(value) : value;
-        if (!declared.has(key)) reasons.add(`numeric binding at ${path}.${field}: undeclared key`);
         return token;
       });
-      if (rendered.length > 512)
-        reasons.add(`numeric binding at ${path}.${field}: expansion is too long`);
+      if (rendered.includes('{{')) {
+        reasons.add(`numeric binding at ${at}: undeclared key or malformed template`);
+      }
+      if (rendered.length > 512) reasons.add(`numeric binding at ${at}: expansion is too long`);
       return rendered;
     };
     return {

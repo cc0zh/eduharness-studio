@@ -5,6 +5,7 @@ import type { TeacherCalculation } from './teacher-tools.js';
 
 type Field = readonly [path: string, text: string | undefined];
 type NumberResult = Extract<CalcVerifyResult, { ok: true }>;
+type Claim = { path: string; label?: string; value: string; observed: boolean };
 function expressionKey(expression: string) {
   let key = expression.replace(/\s+/g, '').replaceAll('**', '^');
   while (key.startsWith('(') && key.endsWith(')')) {
@@ -69,7 +70,7 @@ export function auditTeacherNumbers(
 
   function review(fields: Field[], formulaPath?: string) {
     const reports: { path: string; route: string; weights: string[] }[] = [];
-    const claims: { path: string; label?: string; value: string; observed: boolean }[] = [];
+    const claims: Claim[] = [];
     const sums: string[] = [];
     for (const [path, text] of fields) {
       if (!text) continue;
@@ -85,46 +86,59 @@ export function auditTeacherNumbers(
       }
       for (const { label, terms } of equationChains(source, formula)) {
         const values = terms.map(calc);
-        const observed = terms.map((term) => tool.get(expressionKey(term)));
-        for (let i = 1; i < terms.length; i++) {
-          const a = values[i - 1];
-          const b = values[i];
-          const expected = observed[i - 1];
-          const reversed = observed[i];
-          if (expected?.ok && b.ok && disagree(expected, b, terms[i - 1], terms[i])) {
-            reasons.add(
-              `numeric arithmetic at ${path}: calc_verify gives ${short(expected.text)}, not ${short(b.text)}`,
-            );
-          } else if (reversed?.ok && a.ok && disagree(a, reversed, terms[i - 1], terms[i])) {
-            reasons.add(
-              `numeric arithmetic at ${path}: calc_verify gives ${short(reversed.text)}, not ${short(a.text)}`,
-            );
-          } else if (a.ok && b.ok && disagree(a, b, terms[i - 1], terms[i])) {
-            reasons.add(`numeric arithmetic at ${path}: ${short(a.text)}, not ${short(b.text)}`);
-          } else if (a.ok !== b.ok) {
-            const failure = !a.ok ? a.error : !b.ok ? b.error : undefined;
-            if (failure?.code === 'division_by_zero' || failure?.code === 'domain_error') {
-              reasons.add(`numeric arithmetic at ${path}: ${failure.message}`);
+        const numbers = values.flatMap((value, i) => {
+          if (!value.ok) return [];
+          const term = terms[i];
+          const observed = tool.get(expressionKey(term));
+          return [{ term, value, observed: observed?.ok ? observed : undefined }];
+        });
+        // Numeric equality is transitive through symbolic terms, but rounding tolerance is not.
+        let conflict = false;
+        for (const [i, a] of numbers.entries()) {
+          for (const b of numbers.slice(i + 1)) {
+            const mismatch = (left: NumberResult, right: NumberResult) =>
+              disagree(left, right, a.term, b.term);
+            const evidence =
+              a.observed && mismatch(a.observed, b.value)
+                ? [a.observed.text, b.value.text]
+                : b.observed && mismatch(a.value, b.observed)
+                  ? [b.observed.text, a.value.text]
+                  : undefined;
+            if (evidence || mismatch(a.value, b.value)) {
+              const [expected, shown] = evidence ?? [a.value.text, b.value.text];
+              reasons.add(
+                `numeric arithmetic at ${path}: ${evidence ? 'calc_verify gives ' : ''}${short(expected)}, not ${short(shown)}`,
+              );
+              conflict = true;
             }
           }
         }
-        const first = values[0];
+        if (numbers.length) {
+          for (const value of values) {
+            if (!value.ok && ['division_by_zero', 'domain_error'].includes(value.error.code)) {
+              reasons.add(`numeric arithmetic at ${path}: ${value.error.message}`);
+              conflict = true;
+            }
+          }
+        }
+        const first = numbers[0]?.value;
         if (
-          first.ok &&
-          !first.approximate &&
-          values.every((value) => value.ok && !value.approximate && value.text === first.text)
+          first &&
+          !conflict &&
+          numbers.every(({ value }) => !value.approximate) &&
+          (numbers.length >= 2 || (terms.length === 1 && values[0].ok))
         ) {
           claims.push({
             path,
             label,
             value: first.text,
-            observed: observed.some((value) => value?.ok && value.text === first.text),
+            observed: numbers.some(({ observed }) => observed?.text === first.text),
           });
         }
         const sum = terms[0];
         if (
           formula &&
-          first.ok &&
+          values[0].ok &&
           /^[\d.eE()+\s-]+$/.test(sum) &&
           /[\d)]\s*[+-]/.test(sum) &&
           (!label || /路径|路线|绕路|边权|总长|length|weight/i.test(label))
@@ -134,26 +148,33 @@ export function auditTeacherNumbers(
     }
 
     const formulas = claims.filter(({ path }) => path === formulaPath);
+    const exactFormula = !fields.find(
+      ([path, text]) => path === formulaPath && text && /≈|\\approx/.test(text),
+    );
     for (const claim of claims) {
       if (claim.path === formulaPath || !claim.label) continue;
-      const candidates = claims.filter(
-        (other) => other.path !== claim.path && other.label === claim.label,
-      );
-      const sameField = claims.filter(
-        (other) => other.path === claim.path && other.label === claim.label,
-      );
-      if (sameField.length !== 1) continue;
-      const [expected] = candidates.length
-        ? candidates
-        : /^(?:(?:计算|运算|算式)?结果|result)$/i.test(claim.label) &&
-            !fields.find(([path, text]) => path === formulaPath && text && /≈|\\approx/.test(text))
-          ? formulas
-          : [];
-      if ((candidates.length || formulas.length) > 1 || !expected || expected.value === claim.value)
-        continue;
-      reasons.add(
-        `numeric consistency at ${claim.path}: ${short(claim.value)} conflicts with ${expected.observed ? 'calc_verify result' : 'result'} ${short(expected.value)} at ${expected.path}`,
-      );
+      const named = claims.filter(({ label }) => label === claim.label);
+      // A field may intentionally list multiple cases. Deduplicate repeated facts, not distinct cases.
+      const canCompare = (candidate: Claim) =>
+        !named.some(({ path, value }) => path === candidate.path && value !== candidate.value);
+      if (!canCompare(claim)) continue;
+      const candidates = named.filter((other) => other.path !== claim.path && canCompare(other));
+      if (
+        !candidates.length &&
+        exactFormula &&
+        /^(?:(?:计算|运算|算式)?结果|result)$/i.test(claim.label)
+      ) {
+        const [first] = formulas;
+        if (first && formulas.every(({ value }) => value === first.value))
+          candidates.push(...formulas);
+      }
+      const conflicts = candidates.filter(({ value }) => value !== claim.value);
+      const expected = conflicts.find(({ observed }) => observed) ?? conflicts[0];
+      if (expected) {
+        reasons.add(
+          `numeric consistency at ${claim.path}: ${short(claim.value)} conflicts with ${expected.observed ? 'calc_verify result' : 'result'} ${short(expected.value)} at ${expected.path}`,
+        );
+      }
     }
 
     const [sum] = sums;

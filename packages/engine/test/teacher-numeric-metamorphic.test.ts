@@ -63,6 +63,14 @@ const equationFormats: readonly { name: string; render: (equation: string) => st
     render: (equation) => `\\boxed{\\mathsf{${equation}}}`,
   },
   {
+    name: 'nested multi-argument layout macros',
+    render: (equation) => equation.replace(/=(\d+)$/, '=\\boxed{\\smash{\\textcolor{red}{$1}}}'),
+  },
+  {
+    name: 'calculated endpoints separated by a symbol',
+    render: (equation) => equation.replace('=', '=t='),
+  },
+  {
     name: 'aligned ampersand equals',
     render: (equation) => `\\begin{aligned}${equation.replace('=', '&=')}\\end{aligned}`,
   },
@@ -105,7 +113,64 @@ test('an unresolved arithmetic question is not mistaken for a wrong numeric resu
   }
 });
 
+test('layout arguments are not math, and mathematical arguments are not discarded as layout', () => {
+  const formula = (term: number) =>
+    String.raw`8+4=\colorbox{#abcd}{\fcolorbox{red}{blue}{${term}}}`;
+  assertNumericConflict(rejection({ formula: formula(13) }), 'formula', '12', '13');
+  acceptance({ formula: formula(12) });
+  acceptance({ formula: String.raw`5+5=\binom{5}{2}` });
+  acceptance({ formula: String.raw`2+1=\frac{9}{3}` });
+});
+
+test('symbolic gaps do not hide tool conflicts or turn unrelated inequalities into equalities', () => {
+  const formula = '12=a=13=b=8+4';
+  const reasons = rejection({ formula }, arithmetic);
+  assertNumericConflict(reasons, 'formula', '12', '13');
+  assert.match(reasons, /calc_verify/);
+  acceptance({ formula: '12=a=12=b=8+4' }, arithmetic);
+  acceptance({ formula: '8+4=t' });
+  acceptance({ formula: '8+4=x<13' });
+  acceptance({ formula: '8+4=12 < 13=6+7' });
+  assertNumericConflict(rejection({ formula: '8+4=13 < 16' }), 'formula', '12', '13');
+  acceptance({ formula: '8+4=x²' });
+});
+
 const calculations: readonly Calculation[] = [{ expression: '10000 - 100', exactText: '9900' }];
+test('agreeing bound formula and subtitle still reject drift in the third field', () => {
+  const fields = {
+    bindings: [{ key: 'healthy', expression: '10000-100' }],
+    formula: String.raw`\text{健康人数}=10000-100={{healthy}},\quad \text{患病人数}=100`,
+    voiceover: '健康人数为 {{healthy}} 人。健康人数为 {{healthy}} 人。',
+  };
+  const reasons = rejection({ ...fields, content: '健康人数为 9000 人。' }, calculations);
+  assertNumericConflict(reasons, 'content', '9900', '9000');
+  assert.match(reasons, /calc_verify/);
+  acceptance({ ...fields, content: '健康人数为 9900 人。' }, calculations);
+
+  const differentFormula = { ...fields, formula: String.raw`\text{健康人数}=9100` };
+  const conflicting = rejection({ ...differentFormula, content: '健康人数为 9000 人。' });
+  assertNumericConflict(conflicting, 'content', '9100', '9000');
+});
+
+test('thousands separators preserve a whole number, without consuming function commas', () => {
+  for (const [lhs, correct, wrong] of [
+    ['12,000 − 300', '11,700', '11,701'],
+    ['12,000 − 300', '11700', '11800'],
+    ['１２，０００ − ３００', '１１，７００', '１１，７０１'],
+    [String.raw`\frac{12,000}{3}`, '4,000', '4,001'],
+  ]) {
+    for (const field of fields) {
+      acceptance(panelWithEquation(field, `${lhs} = ${correct}`));
+      const reasons = rejection(panelWithEquation(field, `${lhs} = ${wrong}`));
+      assert.match(reasons, new RegExp(`\\$\\.panels\\[0\\]\\.${field}`));
+    }
+  }
+  acceptance({ formula: 'max(12,300)=300' });
+  assertNumericConflict(rejection({ formula: 'max(12,300)=12300' }), 'formula', '300', '12300');
+  acceptance({ formula: String.raw`C(5,2)=10,\quad 7+2=9` });
+  acceptance({ content: '核对：12,000 − 300 = 11,700,确实没错。' });
+});
+
 const resultFormats = [...equationFormats, { name: 'bare calculation', render: () => '10000-100' }];
 for (const field of ['content', 'voiceover'] as const) {
   for (const { name, render } of resultFormats) {
@@ -186,4 +251,19 @@ test('quoted wrong work cannot exempt an incorrect teacher derivation in another
     arithmetic,
   );
   assertNumericConflict(reasons, 'formula', '12', '13');
+});
+
+test('parenthesized teacher work remains audited independently of quoted_error', () => {
+  const quoted_error = '| 学生错算 |\n| --- |\n| 8+4=13 |';
+  for (const render of [
+    (rhs: number) => `教师的验算（8+4=${rhs}）。`,
+    (rhs: number) => `教师的验算 (8+4=${rhs})。`,
+    (rhs: number) => `代入（(6+2)+4=${rhs}），再对照。`,
+    (rhs: number) => `验算：8+4=${rhs}（人）。`,
+    (rhs: number) => `两步验算（8+4=${rhs}，另算 7+2=9）。`,
+  ]) {
+    assertNumericConflict(rejection({ content: render(14), quoted_error }), 'content', '12', '14');
+    acceptance({ content: render(12), quoted_error });
+  }
+  acceptance({ content: '式子里的 (8+4)×2=24；x(8+4)=15。', quoted_error });
 });

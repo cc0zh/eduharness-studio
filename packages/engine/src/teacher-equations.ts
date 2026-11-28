@@ -1,6 +1,13 @@
 import { isCalcFunction } from './calc-verify-math.js';
 
 export const decimal = /(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/;
+// Number of style arguments before the content. Other multi-argument commands stay opaque:
+// the last argument of a fraction or binomial is not the value of the expression.
+const texStyleArguments = new Map([
+  ['textcolor', 1],
+  ['colorbox', 1],
+  ['fcolorbox', 2],
+]);
 const texSymbols = new Map([
   ['times', '*'],
   ['cdot', '*'],
@@ -68,9 +75,10 @@ function peelTex(source: string) {
           const denominator = argument();
           text += denominator === undefined ? '\\frac' : `((${body})/(${denominator}))`;
         } else {
-          // Unknown multi-argument operators (e.g. binomial notation) are opaque, not arithmetic.
-          const second = argument();
-          text += second === undefined ? body : `\\${name}{${body}}{${second}}`;
+          const styles = texStyleArguments.get(name) ?? 0;
+          const args = [body];
+          for (let next = argument(); next !== undefined; next = argument()) args.push(next);
+          text += args.length === styles + 1 ? args[styles] : `\\${name}{${args.join('}{')}}`;
         }
       }
     }
@@ -94,25 +102,42 @@ export function mathText(source: string, markdown = false) {
     .replace(/->/g, '→');
 }
 
+const groupedInteger = /(?<![.\w])\d{1,3}(?:,\d{3})+(?!\d|,\d)/y;
+
 function* clauses(source: string) {
-  let start = 0;
-  let depth = 0;
+  let clause = '';
+  const call = /([a-z][\w]*)\s*$/i;
+  const parentheses: boolean[] = [];
   for (let i = 0; i < source.length; i++) {
     const char = source[i];
-    if (char === '(') depth++;
-    if (char === ')') depth = Math.max(0, depth - 1);
-    if (/[;。!?\n|≈≠✔✓]/.test(char) || (!depth && char === ',')) {
-      yield source.slice(start, i);
-      start = i + 1;
-      depth = 0;
+    // Inside a calculator function, a comma is an argument separator (e.g. max(12,300)).
+    if (/\d/.test(char) && !parentheses.at(-1)) {
+      groupedInteger.lastIndex = i;
+      const match = groupedInteger.exec(source)?.[0];
+      if (match) {
+        clause += match.replaceAll(',', '');
+        i += match.length - 1;
+        continue;
+      }
     }
+    if (char === '(') {
+      const name = call.exec(clause)?.[1];
+      parentheses.push(Boolean(parentheses.at(-1) || (name && isCalcFunction(name))));
+    }
+    if (char === ')') parentheses.pop();
+    const separator = /[;。?,\n|≈≠✔✓]/.test(char) || (char === '!' && source[i + 1] !== '=');
+    if (!parentheses.length && separator) {
+      yield clause;
+      clause = '';
+    } else clause += char;
   }
-  yield source.slice(start);
+  yield clause;
 }
 
 const name = /^(?:\p{Script=Han}{1,24}|[a-z][\w ]{0,23})$/iu;
 const proseAssignment = /^([\p{Script=Han}]{1,24}?|result)\s*(?:等于|为|是|:)\s*(?=[+\-.(\d])/iu;
 const equality = /(?<![!<>=~])=(?![=>])/;
+const relationBoundary = /[<>]=?|[≤≥]|!=/;
 
 function edge(part: string, last: boolean) {
   const text = part.trim();
@@ -127,26 +152,55 @@ function edge(part: string, last: boolean) {
 
 const percent = new RegExp(`(${decimal.source})\\s*%`, 'g');
 
+// Separate balanced prose asides from the outer text only if they contain an equality.
+// Parentheses inside operands and function calls keep their arithmetic meaning.
+function* withAsides(clause: string): Generator<string> {
+  let start = -1;
+  let depth = 0;
+  let text = '';
+  let offset = 0;
+  for (let i = 0; i < clause.length; i++) {
+    if (clause[i] === '(') {
+      if (depth++ === 0) start = i;
+      continue;
+    }
+    if (clause[i] !== ')' || depth === 0 || --depth !== 0) continue;
+    const inner = clause.slice(start + 1, i);
+    if (!equality.test(inner)) continue;
+    const preceding = clause[start - 1];
+    if (preceding && /[\w).]/.test(preceding)) continue;
+    text += `${clause.slice(offset, start)} `;
+    offset = i + 1;
+    for (const part of clauses(inner)) yield* withAsides(part);
+  }
+  yield text + clause.slice(offset);
+}
+
 export function* equationChains(source: string, standalone: boolean) {
   // A named term such as “+ 健康 9000” supplies a literal, unlike an unknown variable.
   const annotated = source.replace(/([+*/-])\s*\p{Script=Han}{1,16}\s+(?=\d)/gu, '$1 ');
-  for (const clause of clauses(annotated)) {
-    const parts = clause.trim().replace(proseAssignment, '$1=').split(equality);
-    if (parts.length === 1 && !standalone) continue;
-    const label =
-      parts.length > 1 && name.test(parts[0].trim()) ? parts.shift()?.trim() : undefined;
-    const terms = parts.map((part, i) => {
-      const text = part.trim();
-      const term =
-        parts.length === 1 && !label
-          ? text
-          : i === parts.length - 1
-            ? edge(text, true)
-            : i === 0
-              ? edge(text, false)
-              : text;
-      return term.replace(percent, '($1/100)');
-    });
-    if (terms.some(Boolean)) yield { label, terms };
+  for (const block of clauses(annotated)) {
+    for (const aside of withAsides(block)) {
+      const relations = aside.split(relationBoundary);
+      for (const clause of relations) {
+        const parts = clause.trim().replace(proseAssignment, '$1=').split(equality);
+        if (parts.length === 1 && (!standalone || relations.length > 1)) continue;
+        const label =
+          parts.length > 1 && name.test(parts[0].trim()) ? parts.shift()?.trim() : undefined;
+        const terms = parts.map((part, i) => {
+          const text = part.trim();
+          const term =
+            parts.length === 1 && !label
+              ? text
+              : i === parts.length - 1
+                ? edge(text, true)
+                : i === 0
+                  ? edge(text, false)
+                  : text;
+          return term.replace(percent, '($1/100)');
+        });
+        if (terms.some(Boolean)) yield { label, terms };
+      }
+    }
   }
 }

@@ -101,6 +101,36 @@ test('bindings are panel-local and binding/template internals never enter accept
   assert.match(result.reasons.join('\n'), /panels\[1\]\.content: undeclared key/);
 });
 
+test('all malformed binding placeholders are rejected in the three interpolated fields', () => {
+  const bindings = [{ key: 'total', expression: '8+4' }];
+  for (const field of ['content', 'formula', 'voiceover'] as const) {
+    for (const token of [
+      '{{total.count}}',
+      '{{总计}}',
+      '{{!}}',
+      '{{}}',
+      '{{ total count }}',
+      '{{obj.{total}}}',
+      '{{total',
+    ]) {
+      const result = compile({ bindings, [field]: `核对 ${token}。` });
+      assert.ok(!result.ok, `${field} unexpectedly published ${token}`);
+      assert.match(result.reasons.join('\n'), new RegExp(`panels\\[0\\]\\.${field}: .*key`));
+      assert.ok(!('actions' in result));
+    }
+  }
+  const valid = compile({
+    bindings,
+    content: '结果为 {{ total }} 人。',
+    formula: String.raw`8+4=\boxed{{{total}}}`,
+    quoted_error: '学生的原始记号：{{total.count}}',
+  });
+  assert.ok(valid.ok);
+  const board = valid.actions.find((action) => action.type === 'board');
+  assert.equal(board?.formula, String.raw`8+4=\boxed{12}`);
+  assert.match(board?.content ?? '', /结果为 12 人.*\{\{total\.count\}\}/s);
+});
+
 test('quotation remains visible without altering the board or opening redline', () => {
   const result = compile({
     quoted_error: '8+4=13',
