@@ -1,14 +1,15 @@
 import { spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = fileURLToPath(new URL('..', import.meta.url));
+const defaultRoot = fileURLToPath(new URL('..', import.meta.url));
+const BROWSER_TEST_RE = /^browser-.*\.test\.(?:mjs|ts)$/;
 
-function listTests(dir, pattern) {
+function listMatchingFiles(dir, predicate) {
   try {
     return readdirSync(dir)
-      .filter((name) => pattern.test(name))
+      .filter(predicate)
       .sort()
       .map((name) => join(dir, name));
   } catch (error) {
@@ -17,23 +18,43 @@ function listTests(dir, pattern) {
   }
 }
 
-const files = [
-  ...listTests(join(root, 'packages', 'engine', 'test'), /\.test\.ts$/),
-  ...listTests(join(root, 'test'), /\.test\.(?:mjs|ts)$/),
-];
-
-if (files.length === 0) {
-  console.error('No test files found.');
-  process.exit(1);
+export function listTestFiles(root = defaultRoot, mode = 'all') {
+  const absRoot = resolve(root);
+  const engineTests =
+    mode === 'e2e'
+      ? []
+      : listMatchingFiles(join(absRoot, 'packages', 'engine', 'test'), (name) =>
+          /\.test\.ts$/.test(name),
+        );
+  const rootTests = listMatchingFiles(join(absRoot, 'test'), (name) => {
+    if (!/\.test\.(?:mjs|ts)$/.test(name)) return false;
+    if (mode === 'fast') return !BROWSER_TEST_RE.test(name);
+    if (mode === 'e2e') return BROWSER_TEST_RE.test(name);
+    return true;
+  });
+  return [...engineTests, ...rootTests];
 }
 
-const result = spawnSync(
-  process.execPath,
-  ['--import', 'tsx', '--test', '--test-concurrency=1', ...files],
-  {
-    cwd: root,
-    stdio: 'inherit',
-  },
-);
+function parseMode(argv) {
+  if (argv.includes('--fast')) return 'fast';
+  if (argv.includes('--e2e')) return 'e2e';
+  return 'all';
+}
 
-process.exit(result.status ?? 1);
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const mode = parseMode(process.argv.slice(2));
+  const files = listTestFiles(defaultRoot, mode);
+  if (files.length === 0) {
+    console.error(`No test files found for mode "${mode}".`);
+    process.exit(1);
+  }
+  const result = spawnSync(
+    process.execPath,
+    ['--import', 'tsx', '--test', '--test-concurrency=1', ...files],
+    {
+      cwd: defaultRoot,
+      stdio: 'inherit',
+    },
+  );
+  process.exit(result.status ?? 1);
+}
