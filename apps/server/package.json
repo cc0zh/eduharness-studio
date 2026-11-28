@@ -8,7 +8,7 @@
     "start": "tsx src/index.ts"
   },
   "dependencies": {
-    "@eduharness-studio/engine": "*",
+    "@eduharness-studio/engine": "workspace:*",
     "@hono/node-server": "^1.14.1",
     "@sinclair/typebox": "0.34.52",
     "hono": "^4.7.6",

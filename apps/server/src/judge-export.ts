@@ -16,7 +16,7 @@ import { Value } from '@sinclair/typebox/value';
 import { playedSessionActions } from './session-cursor.js';
 import { sessionReader } from './session-db.js';
 
-const usage = `Usage: npm run export:judge -- --out-dir NEW_DIRECTORY [--db FILE] [--session ID ...]
+const usage = `Usage: pnpm run export:judge --out-dir NEW_DIRECTORY [--db FILE] [--session ID ...]
 Writes plan.json (eduharness-ts --judge-only) and manifest.json to a new directory.
 Database: --db, STUDIO_DB_PATH, then data/studio.sqlite; opened read-only.
 Repeat --session ID to select in order, or omit it to select the latest non-retired session.`;

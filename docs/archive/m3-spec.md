@@ -32,7 +32,7 @@
   - 由课程 `topic`、课节标题/目标与可选轻调研目标确定性构造 `#1 learner (turn: 0)` 起手诉求（客观呈现入课目标，不伪造学生作答或推理），随后按已上屏动作与学生输入严格交替归并；
   - 保留纯文本 LaTeX、板书/图示摘要、提问选项与打断/未验证/过关事实标签；
   - 严格前置校验：至少 3 条交替消息（至少含 1 次真实学生作答或打断），空课/未互动课或未对齐上屏游标的会话明确拒收并报错。
-- **只读 CLI 导出入口**：经根 `package.json` 暴露 `npm run export:judge`（[judge-export.ts](../../apps/server/src/judge-export.ts)），读取指定 SQLite（默认 `STUDIO_DB_PATH` 或 `--db`）及 `--session` / `--latest`，输出 `eduharness-ts --judge-only` 可直接消费的计划 JSON 与脱敏元数据清单。
+- **只读 CLI 导出入口**：经根 `package.json` 暴露 `pnpm run export:judge`（[judge-export.ts](../../apps/server/src/judge-export.ts)），读取指定 SQLite（`--db` 或 `STUDIO_DB_PATH`），可用 `--session` 选择会话（默认最近一轮），向 `--out-dir` 指定的新目录输出 `eduharness-ts --judge-only` 可直接消费的计划 JSON 与脱敏元数据清单。
 
 ### 2.3 4 节高区分度对抗白板课与 Eval-Driven 闭环协议
 

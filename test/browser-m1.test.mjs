@@ -8,7 +8,7 @@ import { startBrowserFixture } from './browser-fixture.mjs';
 const lessonRoot = '[data-session-id]';
 const askCard = '[data-ask-card]';
 const evidenceDir = process.env.STUDIO_E2E_SCREENSHOTS;
-const useNpmDev = process.env.STUDIO_E2E_DEV === '1';
+const usePnpmDev = process.env.STUDIO_E2E_DEV === '1';
 
 async function screenshot(page, name) {
   if (!evidenceDir) return;
@@ -97,7 +97,7 @@ async function intake(page, url) {
 test('M1 browser: replay, learner inputs, persistence, X-Ray scoring and cross-page evidence', {
   timeout: 70_000,
 }, async (t) => {
-  const { page, url, errors } = await startBrowserFixture(t, { useNpmDev });
+  const { page, url, errors } = await startBrowserFixture(t, { usePnpmDev });
   const model = await page.request.get(`${url}/api/model`);
   assert.equal(model.status(), 200);
   assert.equal((await model.json()).mode, 'offline');

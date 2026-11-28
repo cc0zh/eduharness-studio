@@ -5,8 +5,8 @@
 ## M0（已完成）：Day-1 骨架与门禁
 
 - 三层仓库结构（`packages/engine`、`apps/server`、`apps/web`）与基础纯引擎契约。
-- 文档骨架与防堆放 Lint、三层导入边界 Lint、`npm run check` 与 CI。
-- 一键 `npm run dev` 并行拉起前后端最小页面与 M0 E2E 连通冒烟。
+- 文档骨架与防堆放 Lint、三层导入边界 Lint、`pnpm run check` 与 CI。
+- 一键 `pnpm run dev` 并行拉起前后端最小页面与 M0 E2E 连通冒烟。
 
 ## M1（已完成）：零密钥离线端到端闭环（详细契约与切片见 [M1 详细规格书](../archive/m1-spec.md)）
 
@@ -30,7 +30,7 @@
 ## M3（已收官）：`eduharness-ts` 双项目真评测闭环与收官（[归档规格](../archive/m3-spec.md) · [验收证据](../status.md#m3-验收证据)）
 
 - 以同栈 TypeScript 仓库 `eduharness-ts`（完整 `e1-binary-v3` 6 维 19 题尺子，99/99 黄金对拍 0 偏差）为唯一评测底座；老 JS 版 `eduharness` 保持只读归档。
-- `eduharness-ts` 补齐极轻 `--judge-only` 外部公开对话评分入口（兼完成 Phase 4 授权真机验证）；`studio` 冻结前端 UI 与既有业务功能，交付纯引擎 `EvidenceMessage[]` 投影与只读 SQLite 导出 CLI（`npm run export:judge`）。
+- `eduharness-ts` 补齐极轻 `--judge-only` 外部公开对话评分入口（兼完成 Phase 4 授权真机验证）；`studio` 冻结前端 UI 与既有业务功能，交付纯引擎 `EvidenceMessage[]` 投影与只读 SQLite 导出 CLI（`pnpm run export:judge`）。
 - 完成 4 场景离线预演与守卫加固，经预算授权完成首轮真机 `live-02`（Studio 19/114 POST）与 `eduharness-ts --judge-only --mode real`（12/72 次、0 重试、`--verify-run` 通过与 Chrome 离线 HTML 核验），并将两项已知内容与脚本边界诚实入档、统一收口 [README](../../README.md)。
 
 ## M4（已搁置 · 保留架构槽位）：建课轻联网检索与来源溯源

@@ -1,10 +1,10 @@
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { webViteBin } from './web-vite.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const tsxCli = join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs');
-const viteBin = join(root, 'node_modules', 'vite', 'bin', 'vite.js');
 
 const apiPort = process.env.PORT ?? '3001';
 const webPort = process.env.WEB_PORT ?? '5173';
@@ -20,7 +20,7 @@ const server = spawn(process.execPath, [tsxCli, 'watch', 'apps/server/src/index.
   stdio: ['ignore', 'inherit', 'inherit'],
 });
 
-const web = spawn(process.execPath, [viteBin, 'apps/web'], {
+const web = spawn(process.execPath, [webViteBin, 'apps/web'], {
   cwd: root,
   env,
   stdio: ['ignore', 'inherit', 'inherit'],

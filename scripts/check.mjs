@@ -1,9 +1,8 @@
 import { spawnSync } from 'node:child_process';
-import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { webViteBin } from './web-vite.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const viteBin = join(root, 'node_modules', 'vite', 'bin', 'vite.js');
 
 const steps = [
   {
@@ -11,7 +10,7 @@ const steps = [
     cmd: process.execPath,
     args: ['scripts/check-static.mjs'],
   },
-  { name: 'Web production build', cmd: process.execPath, args: [viteBin, 'build', 'apps/web'] },
+  { name: 'Web production build', cmd: process.execPath, args: [webViteBin, 'build', 'apps/web'] },
   {
     name: 'Tests (unit + gates + HTTP smoke + Playwright)',
     cmd: process.execPath,

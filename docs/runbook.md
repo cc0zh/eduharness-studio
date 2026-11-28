@@ -3,39 +3,41 @@
 ## 环境要求
 
 - Node.js `>= 22.19.0`（使用内置 `node:sqlite` 与原生 `node --test`）
-- npm `>= 10`
+- pnpm `10.4.1`（以 `package.json` 的 `packageManager` 为准）。`package.json` 白名单仅允许 `esbuild` 安装脚本；`@google/genai` 和 `protobufjs` 的脚本不产出构建文件，macOS 的 `fsevents` 已随包提供预编译件，无需手动批准。
 
 ## 常用命令
 
 ```bash
-# 安装依赖
-npm ci
-npx playwright install chromium
+# 从旧工作区切换时先移除根目录与子包中的旧 node_modules，再冻结安装
+pnpm install --frozen-lockfile
+# store 已备齐时可改用 pnpm install --offline --frozen-lockfile
+pnpm exec playwright install chromium
 
 # 一键运行全套门禁（静态门禁 + 前端构建 + 全部测试）
-npm run check
+pnpm run check
 
 # 秒级静态门禁（pre-commit 自动执行：边界 + 文档 + 代码卫生 + Biome + tsc）
-npm run check:static
+pnpm run check:static
 
 # 单跑专项检查与自动格式化
-npm run check:boundaries
-npm run check:docs
-npm run check:hygiene
-npm run lint
-npm run format
-npm run typecheck
-npm test
-npm run test:e2e
+pnpm run check:boundaries
+pnpm run check:docs
+pnpm run check:hygiene
+pnpm run lint
+pnpm run format
+pnpm run typecheck
+pnpm test
+pnpm run test:e2e
 
 # 同时启动本地后端（3001）与前端（5173）
-npm run dev
+pnpm run dev
 
-# 只读导出已上屏公开对话供 eduharness-ts --judge-only 评分
-npm run export:judge -- --db data/studio.sqlite --latest --out .tmp/judge-plan.json
+# 只读导出最近一轮课堂的已上屏公开对话到新目录，供 eduharness-ts --judge-only 评分
+mkdir -p .tmp
+pnpm run export:judge --db data/studio.sqlite --out-dir .tmp/judge-export
 
 # 离线零外网预演 M3 四场景对抗采集（不发真实模型请求）
-npm run m3:rehearse -- --out-dir .tmp/m3-rehearsal
+pnpm run m3:rehearse --out-dir .tmp/m3-rehearsal
 ```
 
 ## 端口与数据库配置
@@ -43,7 +45,7 @@ npm run m3:rehearse -- --out-dir .tmp/m3-rehearsal
 - 可通过环境变量覆盖默认端口与 SQLite 路径：`PORT=3001`、`WEB_PORT=5173`、`STUDIO_DB_PATH=data/studio.sqlite`（测试可使用 `:memory:`）。
 - 本地开发无需 `.env` 与 API Key；`data/` 目录已被 `.gitignore` 忽略。
 - Playwright 仅为开发依赖：真实 Chromium 验收课堂交互，不进入部署包。E2E 自启随机端口和临时 SQLite；CI 同时安装 Chromium 的系统依赖。
-- 复验开发启动路径时，以 `STUDIO_E2E_DEV=1` 运行 `npm run test:e2e`；可选 `STUDIO_E2E_SCREENSHOTS` 指定截图目录。
+- 复验开发启动路径时，以 `STUDIO_E2E_DEV=1` 运行 `pnpm run test:e2e`；可选 `STUDIO_E2E_SCREENSHOTS` 指定截图目录。
 - X-Ray 离线质检沿用 `eduharness` 工作尺子 `e1-binary-v3` 的 19 题与汇总口径；本地规则只近似判断可观测证据，不等同模型裁判。
 
 ## 模型配置（M2-1）
@@ -60,5 +62,5 @@ npm run m3:rehearse -- --out-dir .tmp/m3-rehearsal
 
 1. **三层导入边界报错**：跨层使用 `@eduharness-studio/engine`；只有服务端可引用 `@eduharness-studio/engine/models`，不能经引擎根入口转接。
 2. **文档门禁报错**：确认未在根目录或 `docs/` 根目录新建未登记 `.md`，未超出活文档行数预算，且新增归档或经验已链接至对应 `README.md`。
-3. **代码卫生 / Biome 报错**：单源码文件上限 360 行，禁止 `@ts-ignore`/`@ts-nocheck`/显式 `any` 及仓库根目录野文件；格式问题可用 `npm run format` 修复。
-4. **端口占用**：通过 `PORT` / `WEB_PORT` 临时改端口后重试 `npm run dev`。
+3. **代码卫生 / Biome 报错**：单源码文件上限 360 行，禁止 `@ts-ignore`/`@ts-nocheck`/显式 `any` 及仓库根目录野文件；格式问题可用 `pnpm run format` 修复。
+4. **端口占用**：通过 `PORT` / `WEB_PORT` 临时改端口后重试 `pnpm run dev`。

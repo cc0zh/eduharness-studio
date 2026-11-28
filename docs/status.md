@@ -9,7 +9,7 @@
 
 [M3 归档规格](archive/m3-spec.md)保留双项目收官契约与切片边界。
 
-- **M3-2 / M3-3 / M3-3c（离线闭环与守卫，`dbfb75a`、`9f876a3`、`befdf6a`）**：落地纯引擎 `EvidenceMessage[]` 裁判投影、只读 SQLite 导出 CLI（`npm run export:judge`）、4 场景 Playwright 对抗采集与单场景/全局 POST 预算守卫。离线预演 4/4 handoff、跨仓离线验真全通，累计检查 **208 项通过、0 失败、0 跳过**；原件见 `m3/integration/`、`m3/m3-3c/`。
+- **M3-2 / M3-3 / M3-3c（离线闭环与守卫，`dbfb75a`、`9f876a3`、`befdf6a`）**：落地纯引擎 `EvidenceMessage[]` 裁判投影、只读 SQLite 导出 CLI（`pnpm run export:judge`）、4 场景 Playwright 对抗采集与单场景/全局 POST 预算守卫。离线预演 4/4 handoff、跨仓离线验真全通，累计检查 **208 项通过、0 失败、0 跳过**；原件见 `m3/integration/`、`m3/m3-3c/`。
 - **M3-3d 授权真机闭环（`live-02`，`befdf6a` + `eduharness-ts@1208959`）**：Chromium 真机驱动 DeepSeek 授课并导出公开对话送入 OpenRouter 真机 6 维裁判（`m3-3-live-01`）。
   - **预算与验真**：Studio **19/114 POST**（全 HTTP 200，输出 token 保守上界 77,824）；`eduharness-ts` 裁判 **12/72 次发出、0 重试**（请求输出 token 上界 49,152）；凭据字面扫描 0 命中。`--verify-run` 返回 `verified=true`、`complete=true`、`settled=2`、`failed=0`；单文件离线 HTML 报告（`m3/live-02/ts-report.html`）经 Chrome `file://` 核验 C2 `#7/#4` 与 C3 `#3/#4` 点击定位高亮，console error / CSP 违规 / 外网请求均为 0。
   - **两格原样结果与护栏实证**：`C2-pressure` 1/8（`support_escalation_and_fading=1`），实证索要答案未泄底、敷衍降级二选一、连续敷衍诚实记 `[要点未验证]`；`C3-interrupt` 2/10（`misconception_repair=1`、`representation_pivot=1`），实证第 1 拍插话干净截断第 2–10 未播拍且零泄入公开投影。
@@ -17,7 +17,7 @@
 
 ## M2.5
 
-- **离线门禁（`73dce84`、`27055c0`、`cacb8aa`）**：语义分镜编译沿用白板动作协议；live 非示范课统一按需规划（2–4 要点），刷新与并发不重复规划。`27055c0` 累计 `npm run check` 仅用 faux / 本机回环，**174 项通过、0 失败、0 跳过**（收据 `m2.5/check-receipt.txt`）；后续 `cacb8aa` 修复 390px 窄屏插话可用性。[离线验收场景](scenarios.md#m25语义分镜编译)
+- **离线门禁（`73dce84`、`27055c0`、`cacb8aa`）**：语义分镜编译沿用白板动作协议；live 非示范课统一按需规划（2–4 要点），刷新与并发不重复规划。`27055c0` 的全量门禁仅用 faux / 本机回环，**174 项通过、0 失败、0 跳过**（收据 `m2.5/check-receipt.txt`）；后续 `cacb8aa` 修复 390px 窄屏插话可用性。[离线验收场景](scenarios.md#m25语义分镜编译)
 - **真机完整微课（`27055c0`）**：DeepSeek 跑完贝叶斯筛查首课 `u1-l1`，**81 拍 `completed`**（25/30 POST 全 200，第 6 拍 1 次格式 502 未提交回合），白板、SQLite 与 X-Ray 游标一致。但 81 拍超出 30–45 拍目标，正文写 `10000 − 100 = 9000` 与公式/`calc_verify` 的 `9900` 冲突，回顾误称 90%→99% 翻十倍，原件 `m2.5/live-full/`。
 - **离线 UX 审计（`27055c0`）**：零 Key Chromium 1440×900 / 390×844 核验建课、解锁与示范课结课；窄屏插话输入框已于 `cacb8aa` 修复，其余边界（离线自由主题仍为样板、暂停发插话须续播可见、未测实体手机输入法）见 `m2.5/ux-audit/ux-audit.md`。
 
@@ -38,11 +38,11 @@
 
 ## M1.5 验收证据
 
-- 全量 `npm run check` 49 项通过（`m1.5/check-receipt.txt`），三屏 + 铜版图 + 暖石 X-Ray + 390px 截图已人工复看。M2 配图定案为方案 A（静态铜版风 SVG + `static-svg` 白名单消毒），见 [M2 归档规格](archive/m2-spec.md#24-白板配图graph生成机制m15-已定案)。
+- 全量门禁 49 项通过（`m1.5/check-receipt.txt`），三屏 + 铜版图 + 暖石 X-Ray + 390px 截图已人工复看。M2 配图定案为方案 A（静态铜版风 SVG + `static-svg` 白名单消毒），见 [M2 归档规格](archive/m2-spec.md#24-白板配图graph生成机制m15-已定案)。
 
 ## M1 验收证据
 
-五个切片全量 `npm run check` 均退出 0（M1-4 48 项通过、10 张截图人工复看，X-Ray 保留纯文本 LaTeX 供 M3 读取）：
+五个切片全量门禁均退出 0（M1-4 48 项通过、10 张截图人工复看，X-Ray 保留纯文本 LaTeX 供 M3 读取）：
 
 | 切片      | 验收内容                                      | 提交                  | 检查收据                 | 截图目录           |
 | --------- | --------------------------------------------- | --------------------- | ------------------------ | ------------------ |

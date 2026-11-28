@@ -3,20 +3,26 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.4.1",
   "engines": {
     "node": ">=22.19.0"
   },
-  "workspaces": [
-    "packages/engine",
-    "apps/server",
-    "apps/web"
-  ],
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ],
+    "ignoredBuiltDependencies": [
+      "@google/genai",
+      "fsevents",
+      "protobufjs"
+    ]
+  },
   "scripts": {
     "prepare": "node scripts/setup-hooks.mjs",
     "dev": "node scripts/dev.mjs",
     "export:judge": "tsx apps/server/src/judge-export.ts",
     "m3:rehearse": "node --import tsx test/m3-rehearsal.mjs",
-    "build": "npm --workspace @eduharness-studio/web run build",
+    "build": "pnpm --filter @eduharness-studio/web run build",
     "lint": "biome check .",
     "format": "biome check --write .",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p apps/web/tsconfig.json",
@@ -30,6 +36,9 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.8",
+    "@eduharness-studio/engine": "workspace:*",
+    "@hono/node-server": "^1.14.1",
+    "@sinclair/typebox": "0.34.52",
     "@types/node": "^22.15.0",
     "playwright": "^1.65.1",
     "tsx": "^4.19.3",

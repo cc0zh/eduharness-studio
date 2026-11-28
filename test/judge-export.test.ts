@@ -9,6 +9,7 @@ import { BAYES_DEMO_ID, type EvidenceMessage } from '@eduharness-studio/engine';
 import { fauxAssistantMessage, fauxToolCall } from '@eduharness-studio/engine/models';
 import { byokSentinel, exportClassroom } from './judge-export-fixture.js';
 import { assertPublicMatch } from './judge-public-match.mjs';
+import { pnpmScript } from './pnpm-script.mjs';
 import { offlineServerEnv } from './studio-test-env.mjs';
 import { lessonDraft, opening } from './teacher-test-support.js';
 
@@ -21,31 +22,22 @@ const sourceCanary = 'NOT_A_PUBLIC_LIGHT_RESEARCH_SNIPPET';
 const futureTitle = 'UNPLAYED_FUTURE_PANEL_M3_2';
 
 function cli(db: string, dir: string, out: string, ...args: string[]) {
-  const npm = process.env.npm_execpath;
-  const result = spawnSync(
-    process.execPath,
-    [
-      ...(npm
-        ? [npm, '--silent', 'run', 'export:judge', '--']
-        : ['--import', 'tsx', 'apps/server/src/judge-export.ts']),
-      '--out-dir',
-      out,
-      ...args,
-    ],
-    {
-      encoding: 'utf8',
-      env: {
-        // A directory is deliberately not a usable .env file.
-        ...offlineServerEnv(dir),
-        STUDIO_DB_PATH: db,
-        NPM_CONFIG_OFFLINE: 'true',
-        NPM_CONFIG_UPDATE_NOTIFIER: 'false',
-        ...syntheticCredentials,
-      },
-      timeout: 10_000,
-      windowsHide: true,
+  const cliArgs = ['--out-dir', out, ...args];
+  const command = pnpmScript('export:judge', ...cliArgs) ?? {
+    executable: process.execPath,
+    args: ['--import', 'tsx', 'apps/server/src/judge-export.ts', ...cliArgs],
+  };
+  const result = spawnSync(command.executable, command.args, {
+    encoding: 'utf8',
+    env: {
+      // A directory is deliberately not a usable .env file.
+      ...offlineServerEnv(dir),
+      STUDIO_DB_PATH: db,
+      ...syntheticCredentials,
     },
-  );
+    timeout: 10_000,
+    windowsHide: true,
+  });
   assert.ifError(result.error);
   return result;
 }
