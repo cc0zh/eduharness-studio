@@ -18,7 +18,7 @@ function reject(context: TeacherTurnContext, input: unknown, reason?: RegExp) {
   if (!result.ok && reason) assert.match(result.reasons.join('\n'), reason);
 }
 
-test('the compiler expands each panel with exact marks and its own voiceover, and pages only left to right', () => {
+test('the compiler expands two panels with exact marks and their own voiceovers', () => {
   const context = {
     ...openingContext,
     progress: {
@@ -28,44 +28,42 @@ test('the compiler expands each panel with exact marks and its own voiceover, an
     },
   };
   const input = scene();
-  input.panels.push(
-    {
-      title: '另外一堆',
-      content: '有两对 No.',
-      highlight: 'no.',
-      voiceover: '现在看另一堆。',
-      formula: '2+2',
-    },
-    { title: '还剩下什么', content: '再数一遍剩下的。', highlight: '剩下' },
-  );
+  input.panels.push({
+    title: '另外一堆',
+    content: '有两对 No.',
+    highlight: 'no.',
+    voiceover: '现在看另一堆。',
+    formula: '2+2',
+  });
   const result = compileTeacherTurn(context, input);
   assert.ok(result.ok);
   assert.deepEqual(result, compileTeacherTurn(context, input));
   assert.deepEqual(
     result.actions.map(({ type }) => type),
-    ['board', 'highlight', 'speak', 'board', 'speak', 'new_page', 'board', 'highlight', 'ask'],
+    ['board', 'highlight', 'speak', 'board', 'speak', 'ask'],
   );
   const boards = result.actions.filter((beat) => beat.type === 'board');
   const marks = result.actions.filter((beat) => beat.type === 'highlight');
   assert.deepEqual(
     boards.map(({ column }) => column),
-    [1, 2, 1],
+    [1, 2],
   );
   assert.deepEqual(
     marks.map(({ card_id, target_text }) => [card_id, target_text]),
-    [
-      [boards[0].card_id, '两两'],
-      [boards[2].card_id, '剩下'],
-    ],
+    [[boards[0].card_id, '两两']],
   );
   assert.equal(boards[1].formula, '2+2');
   assert.match(boards[0].card_id, /^s20-panel-/);
-  assert.equal(result.actions[5].type === 'new_page' && result.actions[5].page_id, 's25-page-2');
   assert.deepEqual(
     result.actions.map(({ step_id }) => step_id),
-    [20, 21, 22, 23, 24, 25, 26, 27, 28],
+    [20, 21, 22, 23, 24, 25],
   );
-  assert.equal(result.progress.highWater, 28);
+  assert.equal(result.progress.highWater, 25);
+  reject(
+    context,
+    { ...input, panels: [...input.panels, input.panels[0]] },
+    /panels: too many items/,
+  );
   const orders = new Set<string>();
   for (let i = 0; i < 16; i++) {
     const shuffled = compileTeacherTurn({ ...context, seed: `learner-${i}` }, input);

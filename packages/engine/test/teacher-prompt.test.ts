@@ -91,7 +91,7 @@ for (const [name, context, enabled] of variants) {
       prompt,
       /\b(?:actions|card_id|page_id|step_id|checkpoint|verify_feedback|boards|spoken)\b/,
     );
-    assert.match(prompt, /panels：1–3 项列表/);
+    assert.match(prompt, /panels：1–2 项列表/);
     assert.match(prompt, /panels\[\]\.title：文本，≤48 字/);
   });
 }

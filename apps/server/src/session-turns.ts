@@ -4,6 +4,7 @@ import {
   classifyInterrupt,
   type LessonRecord,
   type LessonTraceSpan,
+  type TeachingState,
   truncateOnInterrupt,
   validateLessonScript,
 } from '@eduharness-studio/engine';
@@ -111,11 +112,16 @@ export function createSessionTurns(
     });
   }
 
-  function finishInterrupt(session: StoredSession, text: string, truncated: Action[]) {
+  function finishInterrupt(
+    session: StoredSession,
+    text: string,
+    truncated: Action[],
+    initialState: TeachingState = 'diagnose',
+  ) {
     const previous_generation = session.queue.generation;
     ++session.queue.generation;
     session.queue.askStep = null;
-    cursor.transition(session, 'diagnose');
+    cursor.transition(session, initialState);
     cursor.record(session, {
       kind: 'interrupt',
       generation: session.queue.generation,
@@ -172,7 +178,7 @@ export function createSessionTurns(
       return applyTeacherTurn(
         session,
         teacherContext(cursor, session, { kind: 'interrupt', text }, nextProgress),
-        (current) => finishInterrupt(current, text, cut.truncated),
+        (current, plan) => finishInterrupt(current, text, cut.truncated, plan.initialState),
         operation,
       ).then((planned) => {
         if (!('failure' in planned) || planned.failure !== 'model_offline') return planned;
@@ -185,18 +191,19 @@ export function createSessionTurns(
           ) {
             return stale;
           }
-          const actions = fallback.unavailableActions(current, cut.played, nextProgress, false);
+          const plan = fallback.unavailableTurn(
+            teacherContext(cursor, current, { kind: 'interrupt', text }, nextProgress),
+            false,
+          );
+          if (!plan.ok) return teacherFailed;
           const script = {
-            keypoints: current.queue.script.keypoints,
-            actions: [...cut.played, ...actions],
+            keypoints: plan.keypoints,
+            actions: [...cut.played, ...plan.actions],
           };
           if (!validateLessonScript(script)) return teacherFailed;
           current.queue.script = script;
-          current.queue.teacher = {
-            ...nextProgress,
-            highWater: actions.at(-1)?.step_id ?? nextProgress.highWater,
-          };
-          const snapshot = finishInterrupt(current, text, cut.truncated);
+          current.queue.teacher = plan.progress;
+          const snapshot = finishInterrupt(current, text, cut.truncated, plan.initialState);
           traceOffline(current, 'teacher_model_unavailable_fallback', 0);
           return snapshot;
         });

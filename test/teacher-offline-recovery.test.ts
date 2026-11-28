@@ -142,3 +142,123 @@ test('offline first low effort gets a two-choice scaffold; repeated low effort a
   assert.equal(afterSkip?.snapshot.keypoints?.[0].status, 'unverified');
   assert.equal(afterSkip?.trace.playedStepIds?.includes(unverifiedStep), true);
 });
+
+for (const playedCount of [61, 64]) {
+  test(`offline live lesson at ${playedCount} acknowledged beats closes and resumes inside 70`, async (t) => {
+    const fixture = makeFixture(t);
+    const offline = createFauxModelGateway();
+    const store = createSessionStore(
+      sessionDatabase(fixture.database.db),
+      createTeacherPlanner(offline.gateway),
+    );
+    const actions: Action[] = Array.from({ length: playedCount - 1 }, (_, i) => ({
+      type: 'speak',
+      step_id: (i + 1) * 10,
+      text: '已讲过的例子。',
+    }));
+    const ask = {
+      type: 'ask',
+      mode: 'open',
+      step_id: playedCount * 10,
+      card_id: 'q',
+      prompt: '怎么配对？',
+    } as const;
+    actions.push(ask);
+    const draft = lessonDraft();
+    const started = await store.start({
+      ...fixture.options(false),
+      prepare: () => ({
+        script: {
+          keypoints: draft.keypoints.map((point, i) => ({
+            ...point,
+            status: i === 0 ? 'active' : 'pending',
+          })),
+          actions,
+        },
+        openingEvidence: {
+          diagnosis: { status: 'opening', summary: '观察配对', strategy: '举例' },
+          durationMs: 0,
+          guardrails: [],
+        },
+      }),
+    });
+    assert.ok('snapshot' in started);
+    const { session_id: id, generation } = started.snapshot;
+    const stream = store.openStream(id, generation);
+    assert.ok(stream && !('error' in stream));
+    for (const action of actions) {
+      const next = store.poll(stream);
+      assert.equal(next.kind, 'beat');
+      assert.deepEqual(next.beat.action, action);
+      assert.ok('ok' in store.progress(id, { generation, last_played_step_id: action.step_id }));
+    }
+    let askStep = ask.step_id;
+    if (playedCount === 61) {
+      const low = await store.answer(id, { generation, ask_step_id: askStep, text: '１' });
+      assert.ok('ok' in low, JSON.stringify(low));
+      for (const kind of ['speak', 'board', 'ask']) {
+        const next = store.poll(stream);
+        assert.equal(next.kind, 'beat');
+        assert.equal(next.beat.action.type, kind);
+        askStep = next.beat.action.step_id;
+        assert.ok('ok' in store.progress(id, { generation, last_played_step_id: askStep }));
+      }
+    }
+    const handoff = await store.answer(id, { generation, ask_step_id: askStep, text: '１' });
+    assert.ok('ok' in handoff, JSON.stringify(handoff));
+    const cue = store.poll(stream);
+    assert.equal(cue.kind, 'beat');
+    assert.ok(cue.beat.action.type === 'speak' && cue.beat.action.text.includes('未验证'));
+    assert.ok(
+      'ok' in store.progress(id, { generation, last_played_step_id: cue.beat.action.step_id }),
+    );
+    const issued = store.poll(stream);
+    assert.equal(issued.kind, 'beat');
+    assert.equal(issued.beat.action.type, 'keypoint_unverified');
+
+    // The issued mark is retired, not counted or applied. The acknowledged cue is still usable.
+    const resumed = await store.interrupt(id, {
+      generation,
+      last_played_step_id: cue.beat.action.step_id,
+      text: ' 还有一个问题。 ',
+    });
+    assert.ok(!('error' in resumed), JSON.stringify(resumed));
+    assert.equal(resumed.state, 'scaffold');
+    assert.deepEqual(
+      resumed.keypoints?.map(({ status }) => status),
+      ['active', 'pending'],
+    );
+    const continuation = store.openStream(id, resumed.generation);
+    assert.ok(continuation && !('error' in continuation));
+    const types: Action['type'][] = [];
+    for (let i = 0; i < 5; i++) {
+      const next = store.poll(continuation);
+      assert.equal(next.kind, 'beat');
+      assert.ok(next.beat.action.step_id > issued.beat.action.step_id);
+      types.push(next.beat.action.type);
+      assert.ok(
+        'ok' in
+          store.progress(id, {
+            generation: resumed.generation,
+            last_played_step_id: next.beat.action.step_id,
+          }),
+      );
+    }
+    assert.deepEqual(types, [
+      'keypoint_unverified',
+      'speak',
+      'keypoint_unverified',
+      'new_page',
+      'board',
+    ]);
+    const final = store.inspect(id);
+    assert.equal(final?.snapshot.state, 'completed');
+    assert.equal(final.snapshot.playedActions.length, 70);
+    assert.deepEqual(
+      final.snapshot.keypoints?.map(({ status }) => status),
+      ['unverified', 'unverified'],
+    );
+    assert.equal(final.trace.playedStepIds?.includes(issued.beat.action.step_id), false);
+    assert.equal(offline.state.callCount, 0);
+  });
+}

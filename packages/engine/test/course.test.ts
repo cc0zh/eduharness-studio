@@ -129,7 +129,7 @@ test('lazy opening uses the same pruned scene contract on the first request and 
   )({ course, lesson, previousKeypoints: [] });
   for (const prompt of prompts) {
     assert.match(prompt, /ONLY top-level keys keypoints/);
-    assert.match(prompt, /panels：1–3 项列表/);
+    assert.match(prompt, /panels：1–2 项列表/);
     const contract = prompt.split('\n上次提交')[0];
     assert.doesNotMatch(
       contract,

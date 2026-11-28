@@ -1,5 +1,6 @@
 import { KindGuard, type Static, type TSchema, Type } from '@sinclair/typebox';
 import { DepthTagSchema } from './protocol.js';
+import type { TeacherPacing } from './teacher-pacing.js';
 import { TeacherDiagnosisSchema, teacherText as text } from './teacher-protocol.js';
 
 const strict = { additionalProperties: false };
@@ -34,7 +35,7 @@ const PanelSchema = Type.Object(
 );
 const panelList = {
   minItems: 1,
-  maxItems: 3,
+  maxItems: 2,
   description: '按教学顺序先摆情境或误区，再给对照或推导。',
 };
 
@@ -102,10 +103,12 @@ export type TurnPhase =
   | 'interrupt'
   | 'first-low-effort'
   | 'unverified'
-  | 'closing';
+  | 'closing'
+  | 'budget-close';
 export interface TurnPolicy {
   phase: TurnPhase;
   schema: typeof TeacherTurnOutputSchema;
+  pacing: TeacherPacing;
 }
 
 interface TurnFields {
@@ -118,7 +121,7 @@ interface TurnFields {
   nextAsk: 'required' | 'conditional' | 'omit';
 }
 
-export function defineTurnPolicy(policy: TurnFields): TurnPolicy {
+export function defineTurnPolicy(policy: TurnFields, pacing: TeacherPacing): TurnPolicy {
   const binary = policy.phase === 'first-low-effort';
   const nextAsk = Type.Object(
     {
@@ -145,11 +148,17 @@ export function defineTurnPolicy(policy: TurnFields): TurnPolicy {
         },
         strict,
       ),
-      ...(policy.insertKeypoint ? { insert_keypoint: Type.Optional(insertKeypoint) } : {}),
+      ...(policy.insertKeypoint && !pacing.tight
+        ? { insert_keypoint: Type.Optional(insertKeypoint) }
+        : {}),
       ...(policy.resolution ? { resolution: Type.Optional(resolution) } : {}),
-      panels: policy.diagram
-        ? TeacherTurnOutputSchema.properties.panels
-        : Type.Array(Type.Omit(PanelSchema, ['diagram'], strict), panelList),
+      panels: Type.Array(
+        policy.diagram ? PanelSchema : Type.Omit(PanelSchema, ['diagram'], strict),
+        {
+          ...panelList,
+          maxItems: pacing.tight ? 1 : panelList.maxItems,
+        },
+      ),
       ...(policy.nextAsk === 'omit'
         ? {}
         : { next_ask: policy.nextAsk === 'required' ? nextAsk : Type.Optional(nextAsk) }),
@@ -157,7 +166,11 @@ export function defineTurnPolicy(policy: TurnFields): TurnPolicy {
     strict,
   );
   // The phase contract is a strict runtime subset of the semantic envelope.
-  return { phase: policy.phase, schema: schema as unknown as typeof TeacherTurnOutputSchema };
+  return {
+    phase: policy.phase,
+    schema: schema as unknown as typeof TeacherTurnOutputSchema,
+    pacing,
+  };
 }
 
 function shape(node: TSchema): string {
