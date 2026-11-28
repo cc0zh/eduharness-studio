@@ -2,6 +2,7 @@ const unplayed = '四次沿坡的更新表';
 
 export default {
   id: 'C3-interrupt',
+  livePhases: ['interrupt'],
   topic: '梯度下降：学习率与越过极小值',
   title: '为什么沿着下坡也会走过头',
   objective: '按已上屏内容解释梯度方向与步长是两个问题。',

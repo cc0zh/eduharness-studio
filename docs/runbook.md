@@ -38,6 +38,9 @@ pnpm run export:judge --db data/studio.sqlite --out-dir .tmp/judge-export
 
 # 离线零外网预演 M3 四场景对抗采集（不发真实模型请求）
 pnpm run m3:rehearse --out-dir .tmp/m3-rehearsal
+
+# 回环复验 --live 师生闭环、预算熔断与完整裁判导出（不发真实模型请求）
+node --import tsx --test test/browser-m3-live.test.mjs
 ```
 
 ## 端口与数据库配置
@@ -57,6 +60,7 @@ pnpm run m3:rehearse --out-dir .tmp/m3-rehearsal
 - 顶栏「拉取模型」请求一次 `GET /models`；空密码框仅复用同供应商、同规范化 Base URI 的已有凭据，切换地址需输入该地址的 Key。拉取失败可改用预设或手填模型 ID，保存本身只更新配置。`live` 表示已配置，不代表模型请求已通过；真实模型调用前须获费用授权。
 - 带模型配置新开或重开非示范课会调用 Teacher Agent；运行中模型不可用时保留已提交作答，并以离线方式将未完成要点标为未验证。
 - `node --test test/browser-m2-1.test.mjs` 用 loopback 复验 BYOK 与模型目录；设置 `STUDIO_MODEL_LIST_SCREENSHOTS` 保存 M2-1b Chromium 截图。Teacher Agent 用例注入独立 faux 网关和临时 SQLite；设置 `STUDIO_TEACHER_SCREENSHOTS` 保存其截图。
+- M3 `--live` 仍须显式授权；原有总量和单场景 POST 上限由师生共用，账本以 `actor` 区分。只认可确认上屏 ≤70 拍且 `completed` 的完整裁判导出；场景早停会在收据中列出并使验收失败。
 
 ## 常见排障
 

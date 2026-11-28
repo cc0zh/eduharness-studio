@@ -13,7 +13,6 @@ export function assertLivePostLimit(limit) {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > livePostLimit)
     throw new Error(`--live requires a positive integer M3_LIVE_POST_BUDGET <= ${livePostLimit}`);
 }
-
 export function runMode(live, env) {
   const raw = env.M3_LIVE_POST_BUDGET;
   if (!live) {
@@ -43,14 +42,4 @@ export function runMode(live, env) {
     },
     exportEnv: { DEEPSEEK_API_KEY: deepseek, OPENROUTER_API_KEY: openrouter },
   };
-}
-
-export function liveAnswerFits(ask, rule) {
-  return (
-    ask?.type === 'ask' &&
-    (rule === true ||
-      Boolean(
-        rule?.prompt.test(ask.prompt) && (!rule.checkpoint || ask.checkpoint === rule.checkpoint),
-      ))
-  );
 }

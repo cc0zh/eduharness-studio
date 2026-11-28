@@ -7,6 +7,7 @@ const prerequisite = {
 
 export default {
   id: 'C4-prereq',
+  livePhases: ['missing_prereq'],
   topic: 'SQL LEFT JOIN：WHERE 与 ON 的过滤位置',
   title: '被 WHERE 丢掉的左表行',
   objective: '用三值逻辑解释外连接为什么可能看起来像内连接。',
@@ -41,7 +42,6 @@ export default {
   turns: [
     {
       input: '没订单就把 price 当 0 吧？我不懂 NULL 到底是零、假，还是根本不能比较。',
-      liveAsk: { prompt: /(?=.*(?:订单|price|小林))(?=.*(?:WHERE|过滤))/i },
       output: {
         diagnosis: {
           status: 'missing_prereq',
@@ -61,7 +61,6 @@ export default {
     },
     {
       input: '不能确定。空位不是一个已经知道的数，所以两边都不能断言。',
-      liveAsk: { prompt: /(?=.*(?:不知道|未知|缺失|NULL))(?=.*(?:比较|大于))/i },
       output: {
         diagnosis: {
           status: 'clarifying',
@@ -83,7 +82,6 @@ export default {
     },
     {
       input: '不保留。NULL 和 5 作等值比较返回 UNKNOWN，不是 TRUE；WHERE 只留 TRUE。',
-      liveAsk: { checkpoint: 'verify', prompt: /(?=.*NULL)(?=.*WHERE)(?=.*=\s*5(?:\D|$))/i },
       output: {
         diagnosis: {
           status: 'mastered',
