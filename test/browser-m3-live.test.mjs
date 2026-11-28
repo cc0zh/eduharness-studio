@@ -168,3 +168,44 @@ test('M3 --live total fuse blocks a real student model request before it reaches
   assert.ok(!existsSync(join(out, next.id)));
   assertCredentialFree(file, settings.exportEnv);
 });
+
+test('M3 --live refuses an escaped credential on the played board before any student POST', {
+  timeout: 90_000,
+}, async (t) => {
+  const out = scratch(t);
+  // Separate from the teacher auth key: only the rehearsal and judge know this synthetic value.
+  const key = 'SyntheticM3"quoted\\path\nlineEnd';
+  const mock = await startLiveLoopback(t, {
+    mapOpening(opening) {
+      const [first, ...rest] = opening.panels;
+      return { ...opening, panels: [{ ...first, content: `${first.content}\n${key}` }, ...rest] };
+    },
+  });
+  const { scenes, settings } = options(out, mock, 114);
+  settings.exportEnv.OPENROUTER_API_KEY = key;
+
+  const [scene] = scenes;
+  const run = await runScenes(out, [scene], settings, t.signal);
+  assert.deepEqual(
+    mock.received.map(({ actor }) => actor),
+    ['teacher', 'teacher'],
+  );
+  mock.verify([]);
+  assert.deepEqual(run.results, [
+    {
+      scene: scene.id,
+      posts: 2,
+      teacherPosts: 2,
+      studentPosts: 0,
+      status: 'student_failed',
+      reason: 'unsafe_student_text',
+    },
+  ]);
+  const reservations = ledger(join(out, 'post-ledger.jsonl')).filter(
+    ({ event }) => event === 'reserved',
+  );
+  assert.ok(reservations.every(({ actor }) => actor === 'teacher'));
+  assert.equal(reservations.length, 2);
+  assert.deepEqual(run.cells, []);
+  assert.ok(!existsSync(join(out, scene.id, 'export')));
+});

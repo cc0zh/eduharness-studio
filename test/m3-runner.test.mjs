@@ -24,7 +24,7 @@ const divergingOpening = (scene) => ({
 });
 const credentials = {
   DEEPSEEK_API_KEY: 'SyntheticM3DeepseekValueWithNoCredentialPrefix',
-  OPENROUTER_API_KEY: 'SyntheticM3OpenrouterValueWithNoCredentialPrefix',
+  OPENROUTER_API_KEY: 'SyntheticM3Openrouter"quoted\\path\nlineEnd',
 };
 const livePolicy = { mode: 'live', limit: 114, exportEnv: credentials };
 const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'));

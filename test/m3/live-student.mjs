@@ -55,11 +55,25 @@ function safeText(text, credentials) {
   }
 }
 
+function assertPublicQuestionSafe({ board, ask }, credentials) {
+  for (const card of board) {
+    for (const text of Object.values(card)) {
+      if (text !== undefined) safeText(text, credentials);
+    }
+  }
+  if (ask) {
+    safeText(ask.prompt, credentials);
+    for (const label of ask.options ?? []) safeText(label, credentials);
+  }
+}
+
 export function createLiveStudent(gateway, credentials) {
   return async (phase, snapshot, signal) => {
     signal.throwIfAborted();
     assert.ok(Object.hasOwn(intents, phase), 'Unknown live student phase');
     const view = publicQuestion(snapshot, phase === 'interrupt');
+    // JSON escapes quotes, backslashes and newlines, hiding literal credentials from the scan.
+    assertPublicQuestionSafe(view, credentials);
     const prompt = [
       '模拟学生：你在上一对一白板课。用课堂语言说一至两句学生的话，不扮演老师，不输出阶段名。',
       `行为阶段：${phase}`,
@@ -83,8 +97,8 @@ export function createLiveStudent(gateway, credentials) {
       throw new SceneStop('student_failed', 'student_generation_failed');
     }
     signal.throwIfAborted();
-    const text = result.value.text.trim();
+    const { text } = result.value;
     safeText(text, credentials);
-    return text;
+    return text.trim();
   };
 }

@@ -52,7 +52,10 @@ function playDraft(current, output, onlyFirstBeat = false) {
         };
 }
 
-export async function startLiveLoopback(t, { variant = 0 } = {}) {
+export async function startLiveLoopback(
+  t,
+  { variant = 0, mapOpening = (opening) => opening } = {},
+) {
   const lessons = liveLoopbackScenes(variant);
   const finished = new Set();
   const received = [];
@@ -83,8 +86,9 @@ export async function startLiveLoopback(t, { variant = 0 } = {}) {
     const { lesson, index } = current;
     if (prompt.startsWith('Prepare one concise')) {
       assert.equal(current.played.length, 0);
-      playDraft(current, lesson.opening, current.id === c3.id);
-      return { keypoints: lesson.keypoints, opening: lesson.opening };
+      const opening = mapOpening(lesson.opening);
+      playDraft(current, opening, current.id === c3.id);
+      return { keypoints: lesson.keypoints, opening };
     }
     const turn = lesson.turns[index];
     assert.ok(turn, 'Unexpected request after the loopback lesson ended');

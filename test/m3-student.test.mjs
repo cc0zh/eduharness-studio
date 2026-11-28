@@ -85,6 +85,32 @@ test('M3 student refuses unconfirmed questions and never forwards or returns cre
   assert.equal(calls, 1);
 });
 
+test('M3 student scans each raw public text field rather than its JSON encoding', async () => {
+  const credential = 'Synthetic"key\\suffix\r\nlast';
+  const card = played[0];
+  const question = played[3];
+  const signal = new AbortController().signal;
+  const student = createLiveStudent(
+    { generate: () => assert.fail('Unsafe public text must not reach the gateway') },
+    [credential],
+  );
+  for (const [field, board, ask] of [
+    ['title', { ...card, title: credential }, question],
+    ['content', { ...card, content: credential }, question],
+    ['formula', { ...card, formula: credential }, question],
+    ['svg', { type: 'graph', step_id: 1, svg_markup: `<svg><!--${credential}--></svg>` }, question],
+    ['prompt', card, { ...question, prompt: credential }],
+    ['option', card, { ...question, options: [{ label: credential }] }],
+    ['credential pattern', { ...card, content: 'api_key": "example-token-value' }, question],
+  ]) {
+    await assert.rejects(
+      student('follow', { ...snapshot, playedActions: [board, ask] }, signal),
+      { status: 'student_failed', message: 'unsafe_student_text' },
+      field,
+    );
+  }
+});
+
 test('M3 student drops provider error details and does not dispatch on an aborted signal', async () => {
   let calls = 0;
   const student = createLiveStudent(
