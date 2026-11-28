@@ -18,7 +18,8 @@ const ALLOWED_ROOT_FILES = new Set([
   'README.md',
   'biome.json',
   'package.json',
-  'package-lock.json',
+  'pnpm-lock.yaml',
+  'pnpm-workspace.yaml',
   'tsconfig.json',
 ]);
 

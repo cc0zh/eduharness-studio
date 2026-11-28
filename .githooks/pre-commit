@@ -1,5 +1,5 @@
 #!/bin/sh
 set -e
 
-echo "[pre-commit] Running fast static checks (npm run check:static)..."
-npm run check:static
+echo "[pre-commit] Running fast static checks (pnpm run check:static)..."
+pnpm run check:static

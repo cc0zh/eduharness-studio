@@ -7,7 +7,9 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { webViteBin } from '../scripts/web-vite.mjs';
 import { readBrowserDatabaseFiles } from './browser-database-files.mjs';
+import { pnpmScript } from './pnpm-script.mjs';
 import { offlineServerEnv } from './studio-test-env.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -30,8 +32,8 @@ async function bounded(work, description, ms = 6_000) {
   }
 }
 
-function startNode(args, env) {
-  const child = spawn(process.execPath, args, {
+function startProcess(args, env, executable = process.execPath) {
+  const child = spawn(executable, args, {
     cwd: root,
     env,
     detached: !windows,
@@ -191,7 +193,7 @@ async function freePorts(count) {
 
 export async function startBrowserFixture(
   t,
-  { useNpmDev, serverEntry, env: overrides = {}, webEnvironment, capture } = {},
+  { usePnpmDev, serverEntry, env: overrides = {}, webEnvironment, capture } = {},
 ) {
   const directory = mkdtempSync(join(tmpdir(), 'eduharness-browser-'));
   const database = capture?.database ?? join(directory, 'studio.sqlite');
@@ -277,16 +279,17 @@ export async function startBrowserFixture(
   };
   let webPort;
   const { signal } = t;
-  if (useNpmDev) {
-    assert.ok(process.env.npm_execpath, 'Start this check via npm run test:e2e');
+  if (usePnpmDev) {
+    const command = pnpmScript('dev');
+    assert.ok(command, 'Start this check via pnpm run test:e2e');
     const [api, web] = await freePorts(2);
     ports.add(api).add(web);
     signal.throwIfAborted();
-    const dev = startNode([process.env.npm_execpath, 'run', 'dev'], {
-      ...env,
-      PORT: String(api),
-      WEB_PORT: String(web),
-    });
+    const dev = startProcess(
+      command.args,
+      { ...env, PORT: String(api), WEB_PORT: String(web) },
+      command.executable,
+    );
     nodes.push(dev);
     assert.deepEqual(await Promise.all([dev.port(apiLine, signal), dev.port(webLine, signal)]), [
       api,
@@ -296,7 +299,7 @@ export async function startBrowserFixture(
   } else {
     let apiPort = capture?.port;
     if (!apiPort) {
-      const server = startNode(['--import', 'tsx', serverEntry ?? 'apps/server/src/index.ts'], {
+      const server = startProcess(['--import', 'tsx', serverEntry ?? 'apps/server/src/index.ts'], {
         ...env,
         PORT: '0',
       });
@@ -315,7 +318,7 @@ export async function startBrowserFixture(
           STUDIO_DB_PATH: database,
         }
       : env;
-    const web = startNode(['node_modules/vite/bin/vite.js', 'apps/web'], {
+    const web = startProcess([webViteBin, 'apps/web'], {
       ...webEnv,
       PORT: String(apiPort),
       WEB_PORT: String(allocated),
@@ -332,7 +335,7 @@ export async function startBrowserFixture(
   assert.equal((await health.json()).sqlite, 'ok');
   assert.ok(existsSync(database));
   console.log(
-    `Browser startup (${useNpmDev ? 'npm run dev' : 'isolated servers'}): ${url}; ports=${[...ports]}; SQLite=${database}`,
+    `Browser startup (${usePnpmDev ? 'pnpm run dev' : 'isolated servers'}): ${url}; ports=${[...ports]}; SQLite=${database}`,
   );
 
   signal.throwIfAborted();

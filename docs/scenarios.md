@@ -4,8 +4,8 @@
 
 ## M0：骨架与门禁
 
-- **场景 M0-1（门禁全绿）**：执行 `npm run check`，依次通过三层导入边界、文档 Lint、前后端类型检查、前端构建、纯引擎单测、门禁负例单测与前后端连通 E2E 冒烟测试。
-- **场景 M0-2（一键开发启动）**：执行 `npm run dev` 同时拉起 Hono 后端与 Vite 前端，访问页面显示本地 SQLite 健康连接状态，且可切换 `Agent X-Ray` 抽屉。
+- **场景 M0-1（门禁全绿）**：执行 `pnpm run check`，依次通过三层导入边界、文档 Lint、前后端类型检查、前端构建、纯引擎单测、门禁负例单测与前后端连通 E2E 冒烟测试。
+- **场景 M0-2（一键开发启动）**：执行 `pnpm run dev` 同时拉起 Hono 后端与 Vite 前端，访问页面显示本地 SQLite 健康连接状态，且可切换 `Agent X-Ray` 抽屉。
 
 ## M1：零密钥离线端到端闭环
 
@@ -16,7 +16,7 @@
 
 ## M1.5：前端视觉重构与配图样板
 
-- **场景 M1.5-1（中文视觉与交互重构）**：在保持既有两层入口、按拍演播、`ask`/打断焦点互斥与 X-Ray 跨页高亮的前提下，完成新版白板视觉落地并敲定 M2 配图方案，既有 Playwright E2E 与 `npm run check` 全绿。
+- **场景 M1.5-1（中文视觉与交互重构）**：在保持既有两层入口、按拍演播、`ask`/打断焦点互斥与 X-Ray 跨页高亮的前提下，完成新版白板视觉落地并敲定 M2 配图方案，既有 Playwright E2E 与 `pnpm run check` 全绿。
 
 ## M2：真实模型与完整课堂闭环
 
@@ -31,7 +31,7 @@
 
 ## M3：`eduharness-ts` 真评测闭环与收官
 
-- **场景 M3-1（`judge-only` 真实回归验真）**：通过只读 SQLite CLI（`npm run export:judge`）将确认上屏的公开对话投影送入 `eduharness-ts --judge-only`，离线全通并经预算授权完成真机 `live-02`（Studio 19/114 POST、ts 12/72 次、`--verify-run` `verified=true` 与 Chrome 离线 HTML `#n` 高亮核验），诚实记录内容与脚本边界并收口 `README.md`。[已执行证据](status.md#m3-验收证据)
+- **场景 M3-1（`judge-only` 真实回归验真）**：通过只读 SQLite CLI（`pnpm run export:judge`）将确认上屏的公开对话投影送入 `eduharness-ts --judge-only`，离线全通并经预算授权完成真机 `live-02`（Studio 19/114 POST、ts 12/72 次、`--verify-run` `verified=true` 与 Chrome 离线 HTML `#n` 高亮核验），诚实记录内容与脚本边界并收口 `README.md`。[已执行证据](status.md#m3-验收证据)
 
 ## M4（已搁置 · 预留槽位）：建课轻联网检索与来源溯源
 

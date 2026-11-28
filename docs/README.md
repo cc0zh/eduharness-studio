@@ -1,6 +1,6 @@
 # 文档索引与防堆放规则
 
-本仓库通过 `scripts/check-docs.mjs` 在 `npm run check` 与 CI 中强制校验文档目录、行数预算、相对链接与索引覆盖。
+本仓库通过 `scripts/check-docs.mjs` 在 `pnpm run check` 与 CI 中强制校验文档目录、行数预算、相对链接与索引覆盖。
 
 ## 活文档导航
 

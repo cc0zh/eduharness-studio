@@ -18,17 +18,20 @@
 
 ## 快速开始
 
+需要 Node.js `>=22.19.0` 和 `package.json` 中锁定的 pnpm 版本。
+
 ```bash
-npm ci
-npx playwright install chromium
-npm run check
-npm run dev
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
+pnpm run check
+pnpm run dev
 ```
 
-默认零密钥离线运行（无需 `.env`）；`npm run dev` 同时启动本地后端（`http://127.0.0.1:3001`）与前端（`http://127.0.0.1:5173`）。导出已上屏课堂对话供 `eduharness-ts --judge-only` 评分：
+默认零密钥离线运行（无需 `.env`）；`pnpm run dev` 同时启动本地后端（`http://127.0.0.1:3001`）与前端（`http://127.0.0.1:5173`）。导出最近一轮课堂的已上屏对话供 `eduharness-ts --judge-only` 评分：
 
 ```bash
-npm run export:judge -- --db data/studio.sqlite --latest --out .tmp/judge-plan.json
+mkdir -p .tmp
+pnpm run export:judge --db data/studio.sqlite --out-dir .tmp/judge-export
 ```
 
 模型配置、门禁与排障见[运行手册](docs/runbook.md#模型配置m2-1)。
