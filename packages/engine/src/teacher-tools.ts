@@ -2,6 +2,7 @@ import { Value } from '@sinclair/typebox/value';
 import { CalcVerifyParamsSchema, CalcVerifyResultSchema, calcVerify } from './calc-verify.js';
 import type { LessonTraceSpan } from './session-protocol.js';
 import type { StructuredModelTool } from './structured-model.js';
+import { isNumericRejection, maxTeacherAttempts } from './teacher-retry.js';
 
 export interface TeacherTool extends StructuredModelTool {
   traceInput?: (input: unknown) => unknown;
@@ -96,6 +97,11 @@ export const calcVerifyTeacherTool: TeacherTool = {
   traceResult: calcTraceResult,
 };
 
+const initialToolBudget = 2;
+const numericRetryBudget = 1;
+export const maxTeacherToolCalls =
+  initialToolBudget + (maxTeacherAttempts - 1) * numericRetryBudget;
+
 // Tool traces are a bounded projection of numeric facts, not a second copy of arbitrary text.
 function safeTrace(value: unknown, depth = 0): unknown {
   if (value === null || typeof value === 'boolean') return value;
@@ -165,38 +171,49 @@ export function captureTeacherTools(
   anchor: Pick<LessonTraceSpan, 'generation' | 'step_id'>,
   spans: LessonTraceSpan[],
 ) {
-  const maxToolCalls = tools.length ? 2 : 0;
   const observations: { tool: string; result: string }[] = [];
-  let toolCallsUsed = 0;
   let durationMs = 0;
   return {
-    maxToolCalls,
     observations,
     get durationMs() {
       return durationMs;
     },
-    tools: tools.map(
-      (tool): StructuredModelTool => ({
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters,
-        run: async (input) => {
-          if (toolCallsUsed >= maxToolCalls)
-            return JSON.stringify({ error: 'Tool-call limit exhausted.' });
-          toolCallsUsed++;
-          const result = await runTeacherTool(tool, input, anchor);
-          spans.push(result.span);
-          durationMs += result.span.durationMs;
-          const observation = result.observation ?? JSON.stringify({ error: result.error });
-          observations.push({ tool: tool.name, result: observation });
-          return observation;
-        },
-      }),
-    ),
+    forAttempt(reasons: readonly string[], allowInitialTools = true) {
+      const retry = reasons.length > 0;
+      const offered =
+        !retry && allowInitialTools
+          ? tools
+          : isNumericRejection(reasons)
+            ? tools.filter(({ name }) => name === calcVerifyTeacherTool.name)
+            : [];
+      const maxToolCalls = offered.length ? (retry ? numericRetryBudget : initialToolBudget) : 0;
+      let toolCallsUsed = 0;
+      return {
+        maxToolCalls,
+        tools: offered.map(
+          (tool): StructuredModelTool => ({
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters,
+            run: async (input) => {
+              if (toolCallsUsed >= maxToolCalls)
+                return JSON.stringify({ error: 'Tool-call limit exhausted.' });
+              toolCallsUsed++;
+              const result = await runTeacherTool(tool, input, anchor);
+              spans.push(result.span);
+              durationMs += result.span.durationMs;
+              const observation = result.observation ?? JSON.stringify({ error: result.error });
+              observations.push({ tool: tool.name, result: observation });
+              return observation;
+            },
+          }),
+        ),
+      };
+    },
   };
 }
 
-export function teacherToolInstructions(tools: readonly TeacherTool[], budget: number) {
+export function teacherToolInstructions(tools: readonly StructuredModelTool[], budget: number) {
   return budget > 0
     ? `仅在需要精确核对数值、分数、概率或反例时才调用工具（剩余 ${budget} 步）；非数值话题或占位算式不调用。若 approximate=true，只能当作估算。工具：${JSON.stringify(tools.map(({ name, description, parameters }) => ({ name, description, parameters })))}`
     : '';

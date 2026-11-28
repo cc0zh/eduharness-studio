@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createCourseLessonPlanner, validateLessonMaterial } from '../src/course.js';
 import type { CourseBlueprint, LessonRef } from '../src/protocol.js';
-import { fauxResult, localFaux, scene } from './teacher-scene-fixture.js';
+import {
+  fauxNativeCall,
+  fauxResult,
+  localFaux,
+  offeredToolNames,
+  scene,
+  withAuditRejections,
+} from './teacher-scene-fixture.js';
 
 const course: CourseBlueprint = {
   id: 'course-test',
@@ -59,7 +66,13 @@ test('lazy lesson retries a revealing opening before materializing or unlocking 
         panels: [{ ...valid.opening.panels[0], voiceover: '正确答案是 B。' }],
       },
     }),
-    fauxResult(valid),
+    (request) => {
+      assert.deepEqual(offeredToolNames(request.messages), ['emit_result']);
+      const prompt = String(request.messages.find(({ role }) => role === 'user')?.content);
+      assert.match(prompt, /the scene explicitly reveals the answer in the opening/);
+      assert.doesNotMatch(prompt, /正确答案是 B/);
+      return fauxResult(valid);
+    },
   ]);
   const result = await createCourseLessonPlanner(
     faux.gateway,
@@ -77,12 +90,14 @@ test('lazy lesson retries a revealing opening before materializing or unlocking 
 test('lazy opening uses the same pruned scene contract on the first request and correction', async () => {
   const faux = localFaux();
   const invalid = draft();
+  const secretValue = 'faux-course-output-secret';
   const prompts: string[] = [];
   faux.setResponses([
     (request) => {
       prompts.push(String(request.messages.find(({ role }) => role === 'user')?.content));
       return fauxResult({
         ...invalid,
+        authorization: secretValue,
         opening: {
           ...invalid.opening,
           insert_keypoint: {
@@ -115,14 +130,66 @@ test('lazy opening uses the same pruned scene contract on the first request and 
   for (const prompt of prompts) {
     assert.match(prompt, /ONLY top-level keys keypoints/);
     assert.match(prompt, /panels：1–3 项列表/);
-    assert.doesNotMatch(prompt, /insert_keypoint|resolution|transfer|keypoint_complete|checkpoint/);
+    const contract = prompt.split('\n上次提交')[0];
+    assert.doesNotMatch(
+      contract,
+      /insert_keypoint|resolution|transfer|keypoint_complete|checkpoint/,
+    );
+    assert.equal(prompt.includes(secretValue), false);
+    assert.doesNotMatch(prompt, /authorization/);
   }
-  assert.match(prompts[1], /previous submission was invalid/);
+  assert.doesNotMatch(prompts[0], /违约原因/);
+  assert.match(prompts[1], /\$\.opening\.insert_keypoint: unexpected field/);
+  assert.match(prompts[1], /\$\.opening\.next_ask\.transfer: unexpected field/);
+  assert.match(prompts[1], /\[sensitive-field\]/);
   const reasons = material.openingEvidence?.guardrails[0]?.reasons.join(' ') ?? '';
   assert.match(reasons, /opening.insert_keypoint: unexpected field/);
   assert.match(reasons, /opening.next_ask.transfer: unexpected field/);
   assert.ok(validateLessonMaterial(material));
   assert.equal(faux.state.callCount, 2);
+});
+
+test('lazy opening grants exactly one calculator call per numeric correction and stores the bounded evidence', async () => {
+  const { gateway, setResponses, state } = localFaux();
+  const result = fauxResult(draft());
+  const initialCalc = fauxNativeCall('calc_verify', { expression: '1 + 2' });
+  const first = 'numeric_mismatch at $.opening.panels[0].content';
+  const second = '算术校验失败：opening.panels[0].formula';
+  setResponses([
+    initialCalc,
+    initialCalc,
+    result,
+    (request) => {
+      assert.deepEqual(offeredToolNames(request.messages), ['emit_result', 'calc_verify']);
+      assert.ok(JSON.stringify(request.messages).includes(first));
+      return fauxNativeCall('calc_verify', { expression: '  1e3 / 8 ', format: 'fraction' });
+    },
+    (request) => {
+      assert.deepEqual(offeredToolNames(request.messages), ['emit_result']);
+      return result;
+    },
+    (request) => {
+      assert.deepEqual(offeredToolNames(request.messages), ['emit_result', 'calc_verify']);
+      const prompt = JSON.stringify(request.messages);
+      assert.ok(prompt.includes(second));
+      assert.ok(!prompt.includes(first));
+      return fauxNativeCall('calc_verify', { expression: 'C(5, 2)' });
+    },
+    (request) => {
+      assert.deepEqual(offeredToolNames(request.messages), ['emit_result']);
+      return result;
+    },
+  ]);
+  const { material } = await createCourseLessonPlanner(
+    withAuditRejections(gateway, [first], [second]),
+    {},
+  )({ course, lesson, previousKeypoints: [] });
+  assert.ok(validateLessonMaterial(material));
+  assert.equal(state.callCount, 7);
+  assert.deepEqual(
+    material.openingEvidence?.tools?.map(({ result }) => (result as { value: number }).value),
+    [3, 3, 125, 10],
+  );
 });
 
 test('stored opening failures remain valid bounded X-Ray evidence', async () => {

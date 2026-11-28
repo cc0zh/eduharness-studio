@@ -1,5 +1,11 @@
 import assert from 'node:assert/strict';
-import { createFauxModelGateway, fauxAssistantMessage, fauxToolCall } from '../src/models.js';
+import {
+  createFauxModelGateway,
+  fauxAssistantMessage,
+  fauxToolCall,
+  type ModelGateway,
+  ModelGenerationError,
+} from '../src/models.js';
 import type { Action } from '../src/protocol.js';
 import type { TeacherTurnContext, TeacherTurnOutput } from '../src/teacher.js';
 
@@ -60,8 +66,43 @@ export const masteredScene: TeacherTurnOutput = {
   next_ask: { prompt: '两堆拼在一起会怎样？' },
 };
 
+export const fauxNativeCall = (name: string, args: Parameters<typeof fauxToolCall>[1]) =>
+  fauxAssistantMessage(fauxToolCall(name, args), { stopReason: 'toolUse' });
+
 export const fauxResult = (value: Parameters<typeof fauxToolCall>[1]['value']) =>
-  fauxAssistantMessage(fauxToolCall('emit_result', { value }), { stopReason: 'toolUse' });
+  fauxNativeCall('emit_result', { value });
+
+export function offeredToolNames(
+  messages: readonly {
+    role: string;
+    toolsAdded?: readonly { name: string }[];
+    toolsRemoved?: readonly { name: string }[];
+  }[],
+) {
+  const names = new Set<string>();
+  for (const message of messages) {
+    if (message.role !== 'system') continue;
+    for (const { name } of message.toolsRemoved ?? []) names.delete(name);
+    for (const { name } of message.toolsAdded ?? []) names.add(name);
+  }
+  return [...names];
+}
+
+// Issue #4 owns the numerical audit. Reject scripted submissions after real offline tool use.
+export function withAuditRejections(
+  gateway: Pick<ModelGateway, 'generate'>,
+  ...submissions: (readonly string[])[]
+): Pick<ModelGateway, 'generate'> {
+  return {
+    async generate(request) {
+      const result = await gateway.generate(request);
+      const reasons = submissions.shift();
+      if (reasons)
+        throw new ModelGenerationError('model_invalid_output', result.durationMs, reasons);
+      return result;
+    },
+  };
+}
 
 export function localFaux(key = 'faux-engine-test-key') {
   const faux = createFauxModelGateway();

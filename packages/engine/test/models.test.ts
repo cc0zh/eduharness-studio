@@ -137,7 +137,7 @@ test('model gateway enforces a deadline even if a faux provider does not settle 
 });
 
 test('structured output strips blank optional fields and accepts direct unwrapped schema payloads', async () => {
-  const { gateway, setResponses } = createFauxModelGateway();
+  const { gateway, setResponses, state } = createFauxModelGateway();
   gateway.setByok(byok);
   const cardSchema = Type.Object(
     {
@@ -157,4 +157,62 @@ test('structured output strips blank optional fields and accepts direct unwrappe
   assert.deepEqual(first.value, { text: 'ok' });
   const second = await gateway.generate({ schema: cardSchema, prompt: 'second', attempts: 1 });
   assert.deepEqual(second.value, { text: 'direct' });
+  assert.equal(state.callCount, 2);
+});
+
+test('a malformed bare object gets both envelope guidance and a safe schema path', async () => {
+  const { gateway, setResponses, state } = createFauxModelGateway();
+  gateway.setByok(byok);
+  const rejectedValue = 'PRIVATE-COUNT-VALUE';
+  setResponses([
+    fauxAssistantMessage(fauxToolCall('emit_result', { count: rejectedValue }), {
+      stopReason: 'toolUse',
+    }),
+    ({ messages }) => {
+      const correction = JSON.stringify(messages);
+      assert.match(correction, /emit_result must contain only the required value field/);
+      assert.match(correction, /\$\.count: expected an integer/);
+      assert.ok(!correction.includes(rejectedValue));
+      return result({ count: 0 });
+    },
+  ]);
+  assert.deepEqual((await gateway.generate(request)).value, { count: 0 });
+  assert.equal(state.callCount, 2);
+});
+
+test('emit_result rejects mixed envelopes and bare sensitive fields even before a lossy normalizer', async () => {
+  const { gateway, setResponses } = createFauxModelGateway();
+  gateway.setByok(byok);
+  const mixed = (value: Parameters<typeof fauxToolCall>[1]['value']) =>
+    fauxAssistantMessage(fauxToolCall('emit_result', { count: 1, value }), {
+      stopReason: 'toolUse',
+    });
+  setResponses([
+    mixed({ password: 'faux-mixed-password' }),
+    mixed({ count: 2 }),
+    fauxAssistantMessage(
+      fauxToolCall('emit_result', { count: 1, extra: { authorization: 'faux-bare-secret' } }),
+      { stopReason: 'toolUse' },
+    ),
+  ]);
+  const normalizeOutput = (value: unknown) => ({ count: (value as { count: unknown }).count });
+  const generate = () => gateway.generate({ ...request, normalizeOutput, attempts: 1 });
+  await assert.rejects(generate(), (error: unknown) => {
+    assert.ok(error instanceof ModelGenerationError);
+    assert.deepEqual(error.reasons, [
+      'structured output contains a [sensitive-field]',
+      'emit_result must contain only the required value field',
+    ]);
+    return true;
+  });
+  await assert.rejects(generate(), (error: unknown) => {
+    assert.ok(error instanceof ModelGenerationError);
+    assert.deepEqual(error.reasons, ['emit_result must contain only the required value field']);
+    return true;
+  });
+  await assert.rejects(generate(), (error: unknown) => {
+    assert.ok(error instanceof ModelGenerationError);
+    assert.deepEqual(error.reasons, ['structured output contains a [sensitive-field]']);
+    return true;
+  });
 });

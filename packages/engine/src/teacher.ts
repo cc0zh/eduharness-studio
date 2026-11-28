@@ -8,6 +8,7 @@ import { normalizeTeacherTurn } from './teacher-normalize.js';
 import { teacherTurnPolicy } from './teacher-policy.js';
 import { teacherPrompt } from './teacher-prompt.js';
 import type { TeacherTurnTrace } from './teacher-protocol.js';
+import { maxTeacherAttempts, modelRejectionReasons } from './teacher-retry.js';
 import { calcVerifyTeacherTool, captureTeacherTools, type TeacherTool } from './teacher-tools.js';
 
 export { compileTeacherTurn } from './teacher-compiler.js';
@@ -25,8 +26,6 @@ export {
   type TurnPolicy,
 } from './teacher-semantics.js';
 export type { TeacherTool } from './teacher-tools.js';
-
-const maxCorrections = 2;
 
 export function createTeacherPlanner(
   gateway: Pick<ModelGateway, 'generate'>,
@@ -46,26 +45,28 @@ export function createTeacherPlanner(
     const policy = teacherTurnPolicy(context);
     const captured = captureTeacherTools(tools, anchor, spans);
 
-    for (let attempt = 1; attempt <= maxCorrections + 1; attempt++) {
-      const toolBudget =
-        attempt === 1 && policy.phase !== 'first-low-effort' && policy.phase !== 'unverified'
-          ? captured.maxToolCalls
-          : 0;
+    for (let attempt = 1; attempt <= maxTeacherAttempts; attempt++) {
+      const previousReasons = guardrails.at(-1)?.reasons ?? [];
+      const attemptTools = captured.forAttempt(
+        previousReasons,
+        policy.phase !== 'first-low-effort' && policy.phase !== 'unverified',
+      );
+      const priorToolDurationMs = captured.durationMs;
       const modelSpan = (durationMs: number) =>
         spans.push({
           ...anchor,
           kind: 'model',
           name: 'teacher_turn',
-          durationMs: Math.max(0, durationMs - (toolBudget ? captured.durationMs : 0)),
+          durationMs: Math.max(0, durationMs - (captured.durationMs - priorToolDurationMs)),
         });
       const prompt = teacherPrompt(
         context,
         policy,
         dialogue,
-        tools,
-        attempt > 1,
+        attemptTools.tools,
+        previousReasons,
         captured.observations,
-        toolBudget,
+        attemptTools.maxToolCalls,
       );
       let scene: unknown;
       try {
@@ -75,8 +76,7 @@ export function createTeacherPlanner(
           normalizeOutput: normalizeTeacherTurn,
           maxTokens: 4096,
           attempts: 1,
-          tools: toolBudget ? captured.tools : [],
-          maxToolCalls: toolBudget,
+          ...attemptTools,
         });
         modelSpan(durationMs);
         scene = value;
@@ -84,9 +84,7 @@ export function createTeacherPlanner(
         const modelError = error instanceof ModelGenerationError ? error : undefined;
         const failure = modelError?.code ?? 'model_request_failed';
         modelSpan(modelError?.durationMs ?? 0);
-        const reasons = modelError?.reasons.length
-          ? modelError.reasons.map((reason) => `model_invalid_output: ${reason}`)
-          : [failure];
+        const reasons = modelError ? modelRejectionReasons(modelError) : [failure];
         guardrails.push({ attempt, reasons });
         if (failure !== 'model_invalid_output')
           return { ok: false as const, failure, trace, spans };

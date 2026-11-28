@@ -1,0 +1,27 @@
+{
+  "request": { "generation": 1, "last_played_step_id": 6 },
+  "playedTypes": ["board", "highlight", "speak", "board", "highlight", "speak"],
+  "status": 502,
+  "error": "teacher_turn_failed",
+  "failure": "teacher_invalid_output",
+  "turn": {
+    "generation": 1,
+    "step_id": 6,
+    "trigger": "interrupt",
+    "guardrails": [
+      {
+        "attempt": 1,
+        "reasons": ["model_invalid_output: emit_result must contain only the required value field"]
+      },
+      {
+        "attempt": 2,
+        "reasons": ["model_invalid_output: emit_result must contain only the required value field"]
+      },
+      {
+        "attempt": 3,
+        "reasons": ["model_invalid_output: emit_result must contain only the required value field"]
+      }
+    ],
+    "outcome": "rejected"
+  }
+}

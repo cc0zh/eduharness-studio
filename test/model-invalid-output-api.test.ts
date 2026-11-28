@@ -9,6 +9,7 @@ import {
 import { createServerApp } from '../apps/server/src/app.js';
 import { createCourseStore } from '../apps/server/src/course-store.js';
 import { openStudioDatabase } from '../apps/server/src/db.js';
+import liveInterrupt from './fixtures/m2-5-step-6-interrupt.json' with { type: 'json' };
 
 const outputSecret = 'faux-invalid-output-secret';
 
@@ -210,4 +211,101 @@ test('teacher 502 and X-Ray expose the same sanitized model-invalid reason', asy
     assert.equal(payload.includes('OPENROUTER_API_KEY'), false);
   }
   assert.equal(faux.state.callCount, 4);
+});
+
+test('M2.5 beat-6 interrupt replay corrects a bare emit_result before the recorded 502', async (t) => {
+  // Anchors and failures: m2.5/live-full/{latest-session.json,latest-xray.json,browser-api-responses.jsonl}.
+  // Provider arguments weren't retained. Reconstruct a bare scene that reproduces the recorded
+  // envelope error and requires a field-specific correction rather than replaying private text.
+  const { app, course, faux } = setup(t);
+  const first = course.units[0].lessons[0];
+  const bare = (args: Parameters<typeof fauxToolCall>[1]) =>
+    fauxAssistantMessage(fauxToolCall('emit_result', args), { stopReason: 'toolUse' });
+  const openingDraft = {
+    ...validLesson,
+    opening: {
+      ...validOpening,
+      panels: [
+        ...validOpening.panels,
+        {
+          title: '记录测量条件',
+          content: '每次读数都标出测量条件。',
+          highlight: '测量条件',
+          voiceover: '改变条件时，先分别观察。',
+        },
+      ],
+    },
+  };
+  faux.setResponses([bare(openingDraft)]);
+  const post = (path: string, body: object) =>
+    app.request(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  const started = await post(`/api/courses/${course.id}/lessons/${first.id}/sessions`, {});
+  assert.equal(started.status, 201);
+  assert.equal(faux.state.callCount, 1, 'a complete bare lesson needs no corrective POST');
+  const { session_id: id, generation } = await started.json();
+  assert.equal(generation, liveInterrupt.request.generation);
+  const endpoint = `/api/sessions/${id}`;
+  const stream = await app.request(`${endpoint}/stream?generation=${generation}`);
+  assert.ok(stream.body);
+  const reader = stream.body.getReader();
+  const nextFrame = sseFrames(reader);
+  t.after(async () => reader.cancel());
+  assert.equal((await nextFrame())?.event, 'stream');
+  for (const [index, type] of liveInterrupt.playedTypes.entries()) {
+    const beat = await nextFrame();
+    assert.equal(beat?.event, 'beat');
+    assert.equal(beat.data.action?.type, type);
+    const step = index + 1;
+    assert.equal(beat.data.action?.step_id, step);
+    assert.equal(
+      (await post(`${endpoint}/progress`, { generation, last_played_step_id: step })).status,
+      200,
+    );
+  }
+
+  const scene = {
+    diagnosis: { status: 'clarifying', summary: '学生想区分误差。', strategy: '重复测量。' },
+    panels: [{ title: '核对读数', content: '先固定测量条件，再比较几次读数。' }],
+    next_ask: { prompt: '如何判断哪些读数可比较？' },
+  };
+  const malformed = bare({ ...scene, panels: [{ ...scene.panels[0], title: false }] });
+  const diagnostic = 'invalid structured output at $.panels[0].title: expected a string';
+  // With blind prompts the model repeats the malformed submission for all three recorded attempts.
+  faux.setResponses(
+    liveInterrupt.turn.guardrails.map(
+      () =>
+        ({ messages }: { messages: readonly { role: string; content: unknown }[] }) =>
+          String(messages.find(({ role }) => role === 'user')?.content).includes(diagnostic)
+            ? bare(scene)
+            : malformed,
+    ),
+  );
+  const before = faux.state.callCount;
+  const response = await post(`${endpoint}/interrupt`, {
+    ...liveInterrupt.request,
+    text: '这些读数为什么会变化？',
+  });
+  const data = await response.json();
+  assert.equal(
+    response.status,
+    200,
+    `must avoid recorded ${liveInterrupt.status} ${liveInterrupt.error}/${liveInterrupt.failure}: ${JSON.stringify(data)}`,
+  );
+  assert.equal(faux.state.callCount - before, 2);
+  const xray = await (await app.request(`${endpoint}/xray`)).json();
+  const turn = xray.teacherTurns.at(-1);
+  assert.equal(turn.trigger, liveInterrupt.turn.trigger);
+  assert.equal(turn.generation, liveInterrupt.turn.generation);
+  assert.equal(turn.step_id, liveInterrupt.turn.step_id);
+  assert.equal(turn.outcome, 'accepted');
+  assert.deepEqual(turn.guardrails, [
+    {
+      attempt: 1,
+      reasons: [...liveInterrupt.turn.guardrails[0].reasons, `model_invalid_output: ${diagnostic}`],
+    },
+  ]);
 });

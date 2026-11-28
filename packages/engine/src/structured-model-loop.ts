@@ -138,22 +138,37 @@ export async function runStructuredModelLoop<S extends TSchema, TMessage>(
       continue;
     }
     if (response.stopReason === 'toolUse' && call?.name === options.output.name && !extra) {
-      const wrapped =
-        Object.hasOwn(call.arguments, 'value') && Object.keys(call.arguments).length === 1;
-      const sensitive = hasSensitiveFields(call.arguments);
-      const candidate = (options.normalizeOutput ?? stripBlankOptionalFields)(
-        wrapped ? call.arguments.value : call.arguments,
-      );
-      const valid = Value.Check(options.schema, candidate);
-      if (!sensitive && valid) {
-        return { value: candidate, toolCallsUsed };
+      const args = call.arguments;
+      const objectArgs = args !== null && typeof args === 'object' && !Array.isArray(args);
+      const hasValue = objectArgs && Object.hasOwn(args, 'value');
+      const badEnvelope = !objectArgs || (hasValue && Object.keys(args).length !== 1);
+      const envelopeReason = 'emit_result must contain only the required value field';
+      const sensitive = hasSensitiveFields(args);
+      invalidReasons = [];
+      if (badEnvelope) {
+        invalidReasons.push(envelopeReason);
+      } else {
+        // A bare object can be the complete result. Do not guess when both shapes are present.
+        const candidate = (options.normalizeOutput ?? stripBlankOptionalFields)(
+          hasValue ? args.value : args,
+        );
+        if (Value.Check(options.schema, candidate)) {
+          if (!sensitive) return { value: candidate, toolCallsUsed };
+        } else {
+          if (!hasValue) invalidReasons.push(envelopeReason);
+          invalidReasons.push(...schemaReasons(options.schema, candidate));
+        }
       }
-      invalidReasons = wrapped
-        ? schemaReasons(options.schema, candidate)
-        : ['emit_result must contain only the required value field'];
       if (sensitive && !invalidReasons.some((reason) => reason.includes('[sensitive-field]'))) {
         invalidReasons = [sensitiveOutputReason, ...invalidReasons];
       }
+      invalidReasons = [
+        ...new Set(
+          invalidReasons.map((reason) =>
+            options.reflectsCredential(reason) ? sensitiveOutputReason : reason,
+          ),
+        ),
+      ];
       invalidOutputs++;
       if (invalidOutputs < options.attempts) {
         messages.push(options.redactToolArguments(response.message, [call], true));

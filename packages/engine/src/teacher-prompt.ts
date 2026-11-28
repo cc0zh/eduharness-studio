@@ -1,8 +1,10 @@
 import { projectKeypointProgress } from './lesson-playback.js';
 import type { PublicDialogueTurn } from './projection.js';
+import type { StructuredModelTool } from './structured-model.js';
 import { playedConclusions, type TeacherTurnContext } from './teacher-context.js';
+import { teacherCorrectionInstructions } from './teacher-retry.js';
 import { describeTeacherTurn, type TurnPhase, type TurnPolicy } from './teacher-semantics.js';
-import { type TeacherTool, teacherToolInstructions } from './teacher-tools.js';
+import { teacherToolInstructions } from './teacher-tools.js';
 
 const phaseInstructions: Record<TurnPhase, string> = {
   opening:
@@ -31,8 +33,8 @@ export function teacherPrompt(
   context: TeacherTurnContext,
   policy: TurnPolicy,
   dialogue: readonly PublicDialogueTurn[],
-  tools: readonly TeacherTool[],
-  correcting: boolean,
+  tools: readonly StructuredModelTool[],
+  previousReasons: readonly string[],
   observations: readonly { tool: string; result: string }[],
   toolBudget: number,
 ) {
@@ -92,7 +94,7 @@ export function teacherPrompt(
       lastPlayed: last?.step_id ?? 0,
     })}`,
     observations.length ? `工具结果：${JSON.stringify(observations)}` : '',
-    correcting ? '上次提交没有通过校验。严格按本轮字段骨架和教学要求重交完整分镜。' : '',
+    teacherCorrectionInstructions(previousReasons),
   ]
     .filter(Boolean)
     .join('\n');

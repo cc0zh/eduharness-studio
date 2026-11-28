@@ -78,7 +78,7 @@ const variants: [string, TeacherTurnContext, string[]][] = [
 for (const [name, context, enabled] of variants) {
   test(`schema and full prompt agree on every Scene IR field: ${name}`, () => {
     const policy = teacherTurnPolicy(context);
-    const prompt = teacherPrompt(context, policy, [], [], true, [], 0);
+    const prompt = teacherPrompt(context, policy, [], [], ['correct the submission'], [], 0);
     const allowed = schemaPaths(policy.schema).sort();
     const rendered = [...prompt.matchAll(/^([a-z_][a-z_.[\]]*\??)：/gm)]
       .map(([, path]) => path)
@@ -108,7 +108,7 @@ test('policy schema requires exactly two choices initially and prunes the last s
     false,
   );
   assert.match(
-    teacherPrompt(firstLow, teacherTurnPolicy(firstLow), [], [], false, [], 0),
+    teacherPrompt(firstLow, teacherTurnPolicy(firstLow), [], [], [], [], 0),
     /next_ask\.options：2 项列表/,
   );
   assert.equal(Value.Check(teacherTurnPolicy(finalSkip).schema, low), false);
@@ -118,15 +118,7 @@ test('policy schema requires exactly two choices initially and prunes the last s
       panels: low.panels,
     }),
   );
-  const finalPrompt = teacherPrompt(
-    finalPoint,
-    teacherTurnPolicy(finalPoint),
-    [],
-    [],
-    false,
-    [],
-    0,
-  );
+  const finalPrompt = teacherPrompt(finalPoint, teacherTurnPolicy(finalPoint), [], [], [], [], 0);
   assert.match(finalPrompt, /^next_ask\?：/m);
   assert.match(finalPrompt, /^diagnosis\.status：.*"mastered"/m);
 });
@@ -151,7 +143,7 @@ test('working memory includes only one-line conclusions from acknowledged passes
       ...interrupted,
       played: [...verifiedContext.played, ...passed.actions.slice(0, count)],
     };
-    return teacherPrompt(context, teacherTurnPolicy(context), [], [], false, [], 0);
+    return teacherPrompt(context, teacherTurnPolicy(context), [], [], [], [], 0);
   };
   assert.match(promptThrough(1), /"workingMemory":\[\]/);
   assert.match(promptThrough(2), /"workingMemory":\["两两配对后 仍有剩余的数是奇数。"\]/);
