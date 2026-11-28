@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { errors } from 'playwright';
-import { liveAnswerFits } from './mode.mjs';
+import { holdFirstProgress, playLiveLesson } from './play-live-scene.mjs';
 import { SceneStop } from './scene-stop.mjs';
 
 const classroom = '[data-session-id]';
@@ -14,15 +12,6 @@ async function afterModelAction(page, action, matches, stage) {
   if (response.status() === 502) throw new SceneStop('no_handoff', stage, response.url());
   assert.ok(response.ok(), `Unexpected HTTP ${response.status()} during ${stage}`);
   return response;
-}
-
-async function waitForHandoff(work, isFaux, reason) {
-  try {
-    await work;
-  } catch (error) {
-    if (!isFaux && error instanceof errors.TimeoutError) throw new SceneStop('no_handoff', reason);
-    throw error;
-  }
 }
 
 async function enter(page, url, topic, isFaux) {
@@ -70,22 +59,12 @@ async function read(page, url) {
   return response.json();
 }
 
-async function handoff(page, activePath, isFaux, expected, previousStep) {
-  const scope =
-    previousStep === undefined
-      ? ask
-      : `${classroom}:not([data-played-step="${previousStep}"]) ${ask}`;
-  const prompt = page.locator(`${scope} #ask-prompt`);
-  await waitForHandoff(prompt.waitFor({ timeout: 35_000 }), isFaux, 'ask_not_visible');
+async function handoff(page, activePath, expected) {
+  const prompt = page.locator(`${ask} #ask-prompt`);
+  await prompt.waitFor({ timeout: 35_000 });
   if (expected) assert.equal(await prompt.textContent(), expected);
-  await waitForHandoff(
-    page.locator(`${scope} textarea:enabled`).waitFor(isFaux ? undefined : { timeout: 35_000 }),
-    isFaux,
-    'answer_not_ready',
-  );
+  await page.locator(`${ask} textarea:enabled`).waitFor();
   const snapshot = await read(page, activePath);
-  if (!isFaux && snapshot.state !== 'handoff')
-    throw new SceneStop('no_handoff', 'handoff_not_confirmed');
   assert.equal(snapshot.state, 'handoff');
   assert.equal(snapshot.askStep, snapshot.last_played_step_id);
   assert.equal(snapshot.playedActions.at(-1).prompt, await prompt.textContent());
@@ -102,22 +81,12 @@ async function advanceBeat(page) {
   );
 }
 
-async function interrupt({ page, tracePath, activePath, input, cut, isFaux }) {
+async function interrupt({ page, tracePath, activePath, input, cut }) {
   // Wait for the player, pause it, then ensure the visible cursor has reached its ACK.
-  const pause = button(page, '暂停');
-  if (!isFaux) {
-    await waitForHandoff(
-      pause.or(page.locator(ask)).first().waitFor(),
-      false,
-      'no_interrupt_window',
-    );
-    if (await page.locator(ask).isVisible())
-      throw new SceneStop('script_deviation', 'interrupt_window_closed');
-  }
-  await pause.click();
+  await button(page, '暂停').click();
   if (!(await page.locator(`${classroom}[data-played-step]:not([data-played-step="0"])`).count()))
     await advanceBeat(page);
-  if (isFaux) await page.getByRole('heading', { name: cut.anchor, exact: true }).waitFor();
+  await page.getByRole('heading', { name: cut.anchor, exact: true }).waitFor();
   const step = Number(await page.locator(classroom).getAttribute('data-played-step'));
   await page.waitForFunction(
     async ({ url, step }) => {
@@ -128,22 +97,13 @@ async function interrupt({ page, tracePath, activePath, input, cut, isFaux }) {
   );
   const before = await read(page, tracePath);
   const queued = before.queued.map(({ step_id }) => step_id);
-  if (!isFaux && queued.length === 0)
-    throw new SceneStop('script_deviation', 'no_queued_beats_to_interrupt');
   assert.ok(step > 0 && queued.length > 0 && queued.every((id) => id > step));
-  if (isFaux) {
-    assert.ok(before.queued.some(({ type }) => type === 'board'));
-    assert.equal(await page.getByRole('heading', { name: cut.unplayed, exact: true }).count(), 0);
-  }
+  assert.ok(before.queued.some(({ type }) => type === 'board'));
+  assert.equal(await page.getByRole('heading', { name: cut.unplayed, exact: true }).count(), 0);
   await page.getByRole('textbox', { name: '打断插话' }).fill(input);
   const submit = () => button(page, '插话').click();
   const matches = (res) => res.url() === tracePath.replace(/\/xray$/, '/interrupt');
-  let response;
-  if (isFaux) {
-    [response] = await Promise.all([page.waitForResponse(matches), submit()]);
-  } else {
-    response = await afterModelAction(page, submit, matches, 'interrupt_generation_failed');
-  }
+  const [response] = await Promise.all([page.waitForResponse(matches), submit()]);
   assert.equal(response.status(), 200);
   const updated = await response.json();
   const record = updated.records.at(-1);
@@ -154,13 +114,12 @@ async function interrupt({ page, tracePath, activePath, input, cut, isFaux }) {
   assert.deepEqual(record.truncated_step_ids, queued);
   await page.locator(`${classroom}[data-generation="${before.generation + 1}"]`).waitFor();
   for (let n = 0; n < 20 && !(await page.locator(ask).isVisible()); n++) await advanceBeat(page);
-  const snapshot = await handoff(page, activePath, isFaux);
+  const snapshot = await handoff(page, activePath);
   const continued = snapshot.playedActions.filter(({ step_id }) => step_id > step);
   assert.ok(
     continued.length > 0 && continued.every(({ step_id }) => step_id > Math.max(...queued)),
   );
-  if (isFaux)
-    assert.ok(continued.some(({ type, title }) => type === 'board' && title === cut.reply));
+  assert.ok(continued.some(({ type, title }) => type === 'board' && title === cut.reply));
   return { snapshot, cut: { step, queued, resumed: continued[0].step_id } };
 }
 
@@ -217,25 +176,11 @@ function assertTurn(snapshot, trace, turn) {
   }
 }
 
-export async function playScene({ page, url }, scene, directory, isFaux) {
-  const { path, sessionId } = await enter(page, url, scene.topic, isFaux);
-  const activePath = `${url}/api${path}/sessions/active`;
-  const tracePath = `${url}/api/sessions/${sessionId}/xray`;
-  const saves = [];
-  const shot = async (name) => {
-    saves.push(name);
-    await page.screenshot({ path: join(directory, name), animations: 'disabled' });
-  };
+async function playFauxLesson({ page, activePath, tracePath, shot }, scene) {
   let snapshot;
   let cut;
   const checkpoints = [];
-  if (!scene.cut)
-    snapshot = await handoff(
-      page,
-      activePath,
-      isFaux,
-      isFaux ? scene.opening.next_ask.prompt : undefined,
-    );
+  if (!scene.cut) snapshot = await handoff(page, activePath, scene.opening.next_ask.prompt);
   for (const [index, turn] of scene.turns.entries()) {
     if (turn.kind === 'interrupt') {
       ({ snapshot, cut } = await interrupt({
@@ -244,54 +189,24 @@ export async function playScene({ page, url }, scene, directory, isFaux) {
         activePath,
         input: turn.input,
         cut: scene.cut,
-        isFaux,
       }));
     } else {
-      if (!isFaux && !liveAnswerFits(snapshot.playedActions.at(-1), turn.liveAsk)) {
-        await shot('live-unmatched-ask.png');
-        writeFileSync(
-          join(directory, 'live-unmatched-ask.json'),
-          `${JSON.stringify({ sessionId, step: snapshot.last_played_step_id, turn: index + 1 })}\n`,
-          { flag: 'wx' },
-        );
-        throw new SceneStop('script_deviation', 'ask_does_not_match_script');
-      }
       await page.getByRole('textbox', { name: '写下你的回答' }).fill(turn.input);
-      const submit = () => button(page, '提交回答').click();
-      if (isFaux) {
-        await submit();
-        await page.locator(ask).waitFor({ state: 'hidden' });
-      } else {
-        await afterModelAction(
-          page,
-          submit,
-          (res) =>
-            res.url() === tracePath.replace(/\/xray$/, '/answer') &&
-            res.request().method() === 'POST',
-          'answer_generation_failed',
-        );
-      }
-      snapshot = await handoff(
-        page,
-        activePath,
-        isFaux,
-        isFaux ? turn.output.next_ask.prompt : undefined,
-        isFaux ? undefined : snapshot.last_played_step_id,
-      );
+      await button(page, '提交回答').click();
+      await page.locator(ask).waitFor({ state: 'hidden' });
+      snapshot = await handoff(page, activePath, turn.output.next_ask.prompt);
     }
     assert.equal(snapshot.records.filter(({ text }) => text === turn.input).length, 1);
     const trace = await read(page, tracePath);
     assert.equal(trace.last_played_step_id, snapshot.last_played_step_id);
-    if (isFaux) {
-      assertTurn(snapshot, trace, turn);
-      if (turn.expect?.options)
-        assert.equal(await page.locator(`${ask} fieldset button`).count(), turn.expect.options);
-      if (turn.expect?.complete)
-        await page.locator(`[data-completed-keypoint="${turn.expect.complete}"]`).waitFor();
-      if (turn.expect?.unverified)
-        await page.locator(`[data-unverified-keypoint="${turn.expect.unverified}"]`).waitFor();
-    }
-    if (isFaux && scene.rejectedOpening && index === 0) {
+    assertTurn(snapshot, trace, turn);
+    if (turn.expect?.options)
+      assert.equal(await page.locator(`${ask} fieldset button`).count(), turn.expect.options);
+    if (turn.expect?.complete)
+      await page.locator(`[data-completed-keypoint="${turn.expect.complete}"]`).waitFor();
+    if (turn.expect?.unverified)
+      await page.locator(`[data-unverified-keypoint="${turn.expect.unverified}"]`).waitFor();
+    if (scene.rejectedOpening && index === 0) {
       assert.ok(
         trace.teacherTurns[0].guardrails.some(({ reasons }) =>
           reasons.some((reason) => reason.includes('reveals the answer')),
@@ -311,6 +226,10 @@ export async function playScene({ page, url }, scene, directory, isFaux) {
     });
     if (turn.expect?.options) await shot('binary-choice.png');
   }
+  return { snapshot, cut, checkpoints };
+}
+
+async function collectProjection(page, tracePath, snapshot, cut, forbidden) {
   await page.getByRole('switch', { name: 'Agent X-Ray' }).click();
   const drawer = page.getByRole('dialog', { name: 'Agent X-Ray' });
   await drawer.getByRole('tab', { name: '公开对话投影与追踪' }).click();
@@ -345,10 +264,67 @@ export async function playScene({ page, url }, scene, directory, isFaux) {
     assert.ok(
       turns.every(({ evidenceStepIds }) => evidenceStepIds.every((id) => !cut.queued.includes(id))),
     );
-  if (isFaux && scene.cut) assert.ok(turns.every(({ text }) => !text.includes(scene.cut.unplayed)));
-  if (isFaux && scene.rejectedOpening)
-    assert.ok(turns.every(({ text }) => !text.includes(scene.rejectedOpening)));
+  for (const text of forbidden) assert.ok(turns.every((turn) => !turn.text.includes(text)));
   await rows.last().scrollIntoViewIfNeeded();
+  return {
+    visible,
+    quality: { dialogue: { turns }, last_played_step_id: quality.last_played_step_id },
+  };
+}
+
+export async function playScene({ page, url }, scene, directory, { student, signal }) {
+  const isFaux = !student;
+  const release =
+    !isFaux && scene.livePhases[0] === 'interrupt' ? await holdFirstProgress(page, url) : undefined;
+  try {
+    return await playAndCollect({ page, url }, scene, directory, {
+      student,
+      signal,
+      release,
+      isFaux,
+    });
+  } finally {
+    release?.();
+  }
+}
+
+async function playAndCollect(
+  { page, url },
+  scene,
+  directory,
+  { student, signal, release, isFaux },
+) {
+  const { path, sessionId } = await enter(page, url, scene.topic, isFaux);
+  const activePath = `${url}/api${path}/sessions/active`;
+  const sessionPath = `${url}/api/sessions/${sessionId}`;
+  const tracePath = `${sessionPath}/xray`;
+  const saves = [];
+  const shot = async (name) => {
+    saves.push(name);
+    await page.screenshot({ path: join(directory, name), animations: 'disabled' });
+  };
+  const { snapshot, cut, checkpoints, beats } = isFaux
+    ? await playFauxLesson({ page, activePath, tracePath, shot }, scene)
+    : await playLiveLesson(
+        {
+          page,
+          release,
+          signal,
+          student,
+          snapshot: () => read(page, activePath),
+          trace: () => read(page, tracePath),
+          mutate: (kind, action) =>
+            afterModelAction(
+              page,
+              action,
+              (res) => res.url() === `${sessionPath}/${kind}` && res.request().method() === 'POST',
+              `${kind}_generation_failed`,
+            ),
+        },
+        scene.livePhases,
+      );
+  const forbidden = isFaux ? [scene.cut?.unplayed, scene.rejectedOpening].filter(Boolean) : [];
+  const projection = await collectProjection(page, tracePath, snapshot, cut, forbidden);
   await shot('classroom-xray.png');
   return {
     sessionId,
@@ -356,8 +332,8 @@ export async function playScene({ page, url }, scene, directory, isFaux) {
     step: snapshot.last_played_step_id,
     cut,
     checkpoints,
-    visible,
-    quality: { dialogue: { turns }, last_played_step_id: quality.last_played_step_id },
+    ...(beats === undefined ? {} : { beats }),
+    ...projection,
     screenshots: saves,
   };
 }

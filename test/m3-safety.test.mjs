@@ -3,9 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { liveAnswerFits, liveSceneLimits, runMode } from './m3/mode.mjs';
+import { liveSceneLimits, runMode } from './m3/mode.mjs';
 import { postBudget } from './m3/post-budget.mjs';
-import transfer from './m3/scenarios/c1-transfer.mjs';
 import { countedUpstream, fenceM3Tests, ledger, scratch } from './m3/test-loopback.mjs';
 import { offlineNetworkEnv, offlineServerEnv } from './studio-test-env.mjs';
 
@@ -95,8 +94,8 @@ test('M3 lower total fuse reserves before concurrent dispatch across scenes', as
     posts++;
     return new Response('BODY', { status: 502 });
   };
-  const a = budget.fetchFor('C1-transfer', endpoint, send);
-  const b = budget.fetchFor('C2-pressure', endpoint, send);
+  const a = budget.fetchFor('C1-transfer', endpoint, { send });
+  const b = budget.fetchFor('C2-pressure', endpoint, { actor: 'student', send });
   const results = await Promise.allSettled([
     a(endpoint, post),
     b(endpoint, post),
@@ -109,6 +108,8 @@ test('M3 lower total fuse reserves before concurrent dispatch across scenes', as
   );
   assert.match(results[2].reason.message, /budget_exhausted/);
   assert.equal(budget.total(), 2);
+  assert.equal(budget.postsFor('C1-transfer', 'teacher'), 1);
+  assert.equal(budget.postsFor('C2-pressure', 'student'), 1);
   const body = readFileSync(file, 'utf8');
   assert.ok([key, post.body, endpoint, 'BODY'].every((value) => !body.includes(value)));
   assert.deepEqual(
@@ -120,12 +121,17 @@ test('M3 lower total fuse reserves before concurrent dispatch across scenes', as
   );
 });
 
-test('M3 scene fuse stops C2 POST #37 at the wire and leaves C1 usable', async (t) => {
+test('M3 scene fuse shares the C2 limit and stops the student POST #37 at the wire', async (t) => {
   const file = join(scratch(t), 'ledger.jsonl');
   const { endpoint: url, received } = await countedUpstream(t);
   const budget = postBudget(file, { mode: 'live', limit: 114 });
   const c2 = budget.fetchFor('C2-pressure', url);
-  const results = await Promise.allSettled(Array.from({ length: 37 }, () => c2(url, post)));
+  const student = budget.fetchFor('C2-pressure', url, { actor: 'student' });
+  const results = await Promise.allSettled([
+    ...Array.from({ length: 35 }, () => c2(url, post)),
+    student(url, post),
+    student(url, post),
+  ]);
   assert.equal(received.length, 36, 'C2 POST #37 reached the upstream');
   assert.deepEqual(received, Array(36).fill('POST /model'), 'C2 POST #37 reached the upstream');
   assert.equal(
@@ -134,14 +140,16 @@ test('M3 scene fuse stops C2 POST #37 at the wire and leaves C1 usable', async (
   );
   assert.equal(results[36].reason?.status, 'budget_exhausted');
   assert.equal(budget.postsFor('C2-pressure'), 36);
+  assert.equal(budget.postsFor('C2-pressure', 'teacher'), 35);
+  assert.equal(budget.postsFor('C2-pressure', 'student'), 1);
   budget.assertHealthy();
   const c1 = budget.fetchFor('C1-transfer', url);
   assert.equal((await c1(url, post)).status, 204);
   assert.equal(received.length, 37);
-  const { event, scope, scenePosts } = ledger(file).find((row) => row.scope === 'scene');
+  const { event, scope, actor, scenePosts } = ledger(file).find((row) => row.scope === 'scene');
   assert.deepEqual(
-    { event, scope, scenePosts },
-    { event: 'budget_exhausted', scope: 'scene', scenePosts: 36 },
+    { event, scope, actor, scenePosts },
+    { event: 'budget_exhausted', scope: 'scene', actor: 'student', scenePosts: 36 },
   );
 });
 
@@ -193,22 +201,6 @@ test('M3 POST transport has no implicit budget', (t) => {
   }
 });
 
-test('M3 scripted transfer answer needs the matching visible question and verify checkpoint', () => {
-  const rule = transfer.turns[1].liveAsk;
-  const ask = {
-    type: 'ask',
-    checkpoint: 'verify',
-    prompt: transfer.turns[0].output.next_ask.prompt,
-  };
-  assert.equal(liveAnswerFits(ask, rule), true);
-  assert.equal(liveAnswerFits({ ...ask, prompt: ask.prompt.replace('2/10', '3/10') }, rule), false);
-  assert.equal(
-    liveAnswerFits({ ...ask, prompt: ask.prompt.replace('2/10', '2/100') }, rule),
-    false,
-  );
-  assert.equal(liveAnswerFits({ ...ask, checkpoint: undefined }, rule), false);
-});
-
 test('M3 marks SDK reader release separately from SSE transport failure', async (t) => {
   const file = join(scratch(t), 'ledger.jsonl');
   const budget = postBudget(file, { mode: 'faux', limit: 3 });
@@ -225,7 +217,7 @@ test('M3 marks SDK reader release separately from SSE transport failure', async 
     });
     return new Response(body, { headers: sseHeaders });
   };
-  const call = budget.fetchFor('a', endpoint, send);
+  const call = budget.fetchFor('a', endpoint, { send });
   const reader = (await call(endpoint, post)).body.getReader();
   assert.equal((await reader.read()).done, false);
   await reader.cancel();
@@ -239,7 +231,9 @@ test('M3 marks SDK reader release separately from SSE transport failure', async 
 
 test('M3 rejects unapproved model destinations without dispatch', async (t) => {
   const budget = postBudget(join(scratch(t), 'ledger.jsonl'), { mode: 'faux', limit: 3 });
-  const call = budget.fetchFor('a', endpoint, () => assert.fail('Dispatch must not happen'));
+  const call = budget.fetchFor('a', endpoint, {
+    send: () => assert.fail('Dispatch must not happen'),
+  });
   await assert.rejects(
     call(endpoint.replace('https', 'http'), post),
     /unexpected_model_destination/,
@@ -250,14 +244,13 @@ test('M3 rejects unapproved model destinations without dispatch', async (t) => {
 
 test('M3 live model authentication failure stops the whole transport', async (t) => {
   const budget = postBudget(join(scratch(t), 'ledger.jsonl'), { mode: 'live', limit: 114 });
-  const c2 = budget.fetchFor(
-    'C2-pressure',
-    endpoint,
-    async () => new Response(null, { status: 401 }),
-  );
-  const c1 = budget.fetchFor('C1-transfer', endpoint, () =>
-    assert.fail('Dispatch must not happen'),
-  );
+  const c2 = budget.fetchFor('C2-pressure', endpoint, {
+    actor: 'student',
+    send: async () => new Response(null, { status: 401 }),
+  });
+  const c1 = budget.fetchFor('C1-transfer', endpoint, {
+    send: () => assert.fail('Dispatch must not happen'),
+  });
   await assert.rejects(c2(endpoint, post), /model_auth_failed/);
   await assert.rejects(c1(endpoint, post), /model_auth_failed/);
   assert.equal(budget.total(), 1);

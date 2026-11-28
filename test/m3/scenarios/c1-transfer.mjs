@@ -18,6 +18,7 @@ const correction = {
 
 export default {
   id: 'C1-transfer',
+  livePhases: ['misconception', 'near_transfer'],
   topic: '辛普森悖论：分组优劣为什么会在合并时翻转',
   title: '被分母改变的胜负',
   objective: '独立用组权重解释近迁移题的排名翻转。',
@@ -52,18 +53,12 @@ export default {
   turns: [
     {
       input: '只要有一种方法在每组都占优，它的合计率就一定更高。',
-      liveAsk: { prompt: /(?=.*(?:两组|分组))(?=.*(?:合计|总体|整体))/ },
       output: correction,
       expect: { checkpoint: 'verify', active: 'weighted' },
     },
     {
       input:
         'Y 更高：X 是 24/60，Y 是 42/60。X 多数记录来自 15/50 的组，合计按尝试数加权，不是把两组率平均。',
-      liveAsk: {
-        checkpoint: 'verify',
-        prompt:
-          /X\s*[是为:：]?\s*9\s*\/\s*10[、,，和及\s]+15\s*\/\s*50(?!\d).*Y\s*[是为:：]?\s*40\s*\/\s*50[、,，和及\s]+2\s*\/\s*10(?!\d)/iu,
-      },
       calc: { expression: '(9 + 15) / (10 + 50)', result: '0.4' },
       output: {
         diagnosis: {

@@ -3,17 +3,26 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import interruption from './m3/scenarios/c3-interrupt.mjs';
-import { rehearseFaux } from './m3-rehearsal.mjs';
+import { rehearsalOptions, rehearseFaux } from './m3-rehearsal.mjs';
 
-test('M3 Chromium smoke cuts a queued beat and exports the acknowledged public dialogue', {
-  timeout: 60_000,
+test('M3 Chromium faux preserves all four zero-key scripted contracts and exports', {
+  timeout: 180_000,
 }, async (t) => {
   const out = mkdtempSync(join(tmpdir(), 'studio-m3-smoke-'));
   t.after(() => rmSync(out, { force: true, recursive: true }));
-  await rehearseFaux(out, [interruption], t.signal);
+  await rehearseFaux(out, rehearsalOptions(['--out-dir', out]).scenes, t.signal);
   const receipt = JSON.parse(readFileSync(join(out, 'rehearsal.json'), 'utf8'));
   assert.equal(receipt.exportExit, 0);
-  assert.equal(receipt.totalPosts, 3);
+  assert.deepEqual(
+    receipt.results.map(({ posts, status }) => [posts, status]),
+    [
+      [5, 'handoff'],
+      [6, 'handoff'],
+      [3, 'handoff'],
+      [5, 'handoff'],
+    ],
+  );
+  assert.equal(receipt.exported, 4);
+  assert.equal(receipt.totalPosts, 19);
   assert.equal(receipt.networkBlocks, 0);
 });

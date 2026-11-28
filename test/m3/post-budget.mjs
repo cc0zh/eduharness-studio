@@ -68,7 +68,11 @@ export function postBudget(file, { mode, limit }) {
   let stopped;
   const sceneCounts = new Map();
   const blockedScenes = new Set();
-  const postsFor = (scene) => sceneCounts.get(scene) ?? 0;
+  const postsFor = (scene, actor) => {
+    const counts = sceneCounts.get(scene);
+    if (actor) return counts?.[actor] ?? 0;
+    return (counts?.teacher ?? 0) + (counts?.student ?? 0);
+  };
   function record(fields) {
     try {
       appendFileSync(file, `${JSON.stringify({ at: new Date().toISOString(), ...fields })}\n`);
@@ -93,19 +97,20 @@ export function postBudget(file, { mode, limit }) {
     sceneBlocked: (scene) => blockedScenes.has(scene),
     sceneLimitReached: (scene) => live && postsFor(scene) >= liveSceneLimits[scene],
     assertHealthy,
-    fetchFor(scene, endpoint, send = globalThis.fetch) {
+    fetchFor(scene, endpoint, { actor = 'teacher', send = globalThis.fetch } = {}) {
       if (live && !Object.hasOwn(liveSceneLimits, scene)) throw new Error('Unapproved live scene');
+      if (actor !== 'teacher' && actor !== 'student') throw new Error('Unknown model POST actor');
       return async (input, init) => {
         assertHealthy();
         const url = input instanceof Request ? input.url : String(input);
         const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
         const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
         if (url !== endpoint || method.toUpperCase() !== 'POST') {
-          stop('unexpected_model_destination', scene);
+          stop('unexpected_model_destination', scene, { actor });
           assertHealthy();
         }
         if (reserved >= limit) {
-          stop('budget_exhausted', scene, { scope: 'total', limit });
+          stop('budget_exhausted', scene, { actor, scope: 'total', limit });
           assertHealthy();
         }
         const scenePosts = postsFor(scene);
@@ -116,6 +121,7 @@ export function postBudget(file, { mode, limit }) {
               event: 'budget_exhausted',
               scope: 'scene',
               scene,
+              actor,
               scenePosts,
               limit: sceneLimit,
             });
@@ -124,14 +130,16 @@ export function postBudget(file, { mode, limit }) {
         }
         const seq = reserved + 1;
         const sceneSeq = scenePosts + 1;
-        const log = (event, fields = {}) => record({ scene, seq, event, ...fields });
+        const log = (event, fields = {}) => record({ scene, actor, seq, event, ...fields });
         // Reserve synchronously before dispatch, never refund on a failed or released response.
         log('reserved', { sceneSeq });
         reserved = seq;
-        sceneCounts.set(scene, sceneSeq);
+        const counts = sceneCounts.get(scene) ?? { teacher: 0, student: 0 };
+        counts[actor]++;
+        sceneCounts.set(scene, counts);
         const outcome = (event) => {
           log(event);
-          if (event === 'transport_failure') stop('transport_stopped', scene);
+          if (event === 'transport_failure') stop('transport_stopped', scene, { actor });
         };
         let response;
         try {
@@ -145,7 +153,7 @@ export function postBudget(file, { mode, limit }) {
         }
         log('headers', { status: response.status });
         if (live && [401, 403, 407].includes(response.status)) {
-          stop('model_auth_failed', scene);
+          stop('model_auth_failed', scene, { actor });
           assertHealthy();
         }
         return response.ok &&

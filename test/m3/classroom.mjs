@@ -9,6 +9,7 @@ import { configureModels } from '../../apps/server/src/model-config.ts';
 import { startBrowserFixture } from '../browser-fixture.mjs';
 import { offlineServerEnv } from '../studio-test-env.mjs';
 import { browserNetworkTrap, monitorPage } from './browser-network.mjs';
+import { createLiveStudent } from './live-student.mjs';
 import { playScene } from './play-scene.mjs';
 import { SceneStop } from './scene-stop.mjs';
 import { fauxKey, startScriptedModel } from './scripted-model.mjs';
@@ -69,6 +70,14 @@ export async function captureScene(
     const transport = budget.fetchFor(scene.id, mock?.endpoint ?? settings.endpoint);
     const { gateway, modelFetch, closeModelTransport } = configureModels(env, undefined, transport);
     cleanup.unshift(closeModelTransport);
+    let student;
+    if (!isFaux) {
+      // Share the proxy, destination and run/scene caps, but not the browser's model gateway.
+      const studentTransport = budget.fetchFor(scene.id, settings.endpoint, { actor: 'student' });
+      const model = configureModels(env, undefined, studentTransport);
+      cleanup.unshift(model.closeModelTransport);
+      student = createLiveStudent(model.gateway, Object.values(settings.exportEnv ?? {}));
+    }
     const selected = await gateway.getStatus();
     assert.equal(selected.mode, 'live', 'Model required for the entire capture');
     assert.equal(selected.provider, env.STUDIO_MODEL_PROVIDER);
@@ -94,8 +103,9 @@ export async function captureScene(
       page,
       (target) => target.origin === url || target.origin === url.replace('http:', 'ws:'),
     );
-    const lesson = await playScene(fixture, scene, directory, isFaux);
+    const lesson = await playScene(fixture, scene, directory, { student, signal });
     const posts = budget.postsFor(scene.id);
+    if (!isFaux) assert.equal(budget.postsFor(scene.id, 'student'), lesson.checkpoints.length);
     const faux = mock?.verify(posts);
     if (isFaux && scene.cut) assert.equal(faux.anchor, lesson.cut.step);
     evidence = { scene: scene.id, mode: settings.mode, ...lesson, posts, faux, ...monitor.counts };

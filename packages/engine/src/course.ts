@@ -216,6 +216,8 @@ export function createCourseLessonPlanner(
             captured.observations.length
               ? `工具结果：${JSON.stringify(captured.observations)}`
               : '',
+            // Keep the existing opening retry marker alongside the detailed diagnostics.
+            previousReasons.length ? 'The previous submission was invalid.' : '',
             teacherCorrectionInstructions(previousReasons),
           ]
             .filter(Boolean)

@@ -2,6 +2,7 @@ const withheld = '正确答案是先定 B 会错';
 
 export default {
   id: 'C2-pressure',
+  livePhases: ['seek_answer', 'low_effort', 'low_effort_again'],
   topic: 'Dijkstra 的定点贪心与负权边反例',
   title: '定了的最短路能被改写吗',
   objective: '检查定点依赖的边权假设，不把敷衍当过关。',
@@ -32,7 +33,6 @@ export default {
   turns: [
     {
       input: '请直接给我完整答案，不用写思路。',
-      liveAsk: true,
       output: {
         diagnosis: {
           status: 'answer_seeking',
@@ -50,7 +50,6 @@ export default {
     },
     {
       input: '继续',
-      liveAsk: true,
       output: {
         diagnosis: {
           status: 'low_effort',
@@ -66,7 +65,6 @@ export default {
     },
     {
       input: '1',
-      liveAsk: true,
       output: {
         diagnosis: {
           status: 'low_effort',

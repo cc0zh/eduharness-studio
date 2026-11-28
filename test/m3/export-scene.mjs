@@ -68,6 +68,8 @@ export function exportScene(directory, scene, capture, settings) {
         cell.transcript.every(({ text }) => !text.includes(forbidden)),
         'Unplayed or rejected text leaked into export',
       );
+  } else {
+    assert.ok(meta.keypoints.every(({ status }) => ['completed', 'unverified'].includes(status)));
   }
   assertPublicMatch(cell.transcript, capture.quality);
   return { cell, meta };

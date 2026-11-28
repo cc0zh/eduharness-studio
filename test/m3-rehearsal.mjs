@@ -50,12 +50,12 @@ export async function runScenes(directory, scenes, settings, signal, capture = c
       budget.assertHealthy();
       if (budget.sceneBlocked(scene.id))
         throw new SceneStop('budget_exhausted', 'scene_post_limit');
-      assert.equal(recorded.state, 'handoff');
+      assert.equal(recorded.state, isFaux ? 'handoff' : 'completed');
       const { cell, meta } = exportScene(sceneDir, scene, recorded, settings);
       cells.push(cell);
       sessions.push(meta);
       outcome = {
-        status: 'handoff',
+        status: recorded.state,
         publicTurns: recorded.visible.length,
         transcript: cell.transcript.length,
       };
@@ -74,6 +74,11 @@ export async function runScenes(directory, scenes, settings, signal, capture = c
     const result = {
       scene: scene.id,
       posts: budget.postsFor(scene.id),
+      ...(!isFaux && {
+        teacherPosts: budget.postsFor(scene.id, 'teacher'),
+        studentPosts: budget.postsFor(scene.id, 'student'),
+        ...(recorded?.beats !== undefined && { beats: recorded.beats }),
+      }),
       ...(recorded && { sessionId: recorded.sessionId, step: recorded.step }),
       ...outcome,
     };
@@ -121,6 +126,9 @@ async function rehearse(directory, scenes, settings, signal) {
     networkBlocks,
     results,
   });
+  if (!isFaux && results.some(({ status }) => status !== 'completed')) {
+    throw new Error('M3 live acceptance incomplete; see rehearsal.json and per-scene results');
+  }
 }
 
 export function rehearseFaux(directory, scenes, signal) {

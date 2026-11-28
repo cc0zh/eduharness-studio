@@ -24,7 +24,7 @@ const divergingOpening = (scene) => ({
 });
 const credentials = {
   DEEPSEEK_API_KEY: 'SyntheticM3DeepseekValueWithNoCredentialPrefix',
-  OPENROUTER_API_KEY: 'SyntheticM3OpenrouterValueWithNoCredentialPrefix',
+  OPENROUTER_API_KEY: 'SyntheticM3Openrouter"quoted\\path\nlineEnd',
 };
 const livePolicy = { mode: 'live', limit: 114, exportEnv: credentials };
 const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'));
@@ -55,7 +55,7 @@ test('M3 CLI requires explicit live order and preserves the default faux order',
   );
 });
 
-test('M3 ordered run shares reservations and continues after cap, deviation and export refusal', {
+test('M3 ordered run shares reservations and continues after cap, step limit and export refusal', {
   timeout: 120_000,
 }, async (t) => {
   const out = scratch(t);
@@ -100,54 +100,40 @@ test('M3 ordered run shares reservations and continues after cap, deviation and 
           signal,
         );
       }
+      mkdirSync(dir);
+      if (scene.id === order[1]) throw new SceneStop('step_limit', 'lesson_beat_limit');
       if (scene.id === order[2]) {
-        mkdirSync(dir);
         copyFileSync(dbFixture.path, join(dir, 'studio.sqlite'));
-        return { sessionId: unanswered.id, step: ask.step_id, state: 'handoff' };
+        // Negative control for an incomplete SQLite capture sent to the real export boundary.
+        exportScene(dir, scene, { sessionId: unanswered.id, step: ask.step_id }, settings);
+        assert.fail('Expected export refusal');
       }
-      const fake = await startScriptedModel(scene === transfer ? divergingOpening(scene) : scene);
-      try {
-        const result = await captureScene(
-          scene,
-          dir,
-          {
-            ...settings,
-            endpoint: fake.endpoint,
-            modelEnv: fake.env,
-          },
-          budget,
-          signal,
-        );
-        fake.verify(result.posts);
-        return result;
-      } finally {
-        await fake.close();
-      }
+      throw new SceneStop('student_failed', 'student_generation_failed');
     },
   );
   assert.deepEqual(seen, [
     [order[0], 0],
     [order[1], 36],
-    [order[2], 38],
-    [order[3], 38],
+    [order[2], 36],
+    [order[3], 36],
   ]);
   assert.equal(upstream.received.length, 36);
   assert.deepEqual(
     run.results.map(({ scene, posts, status, reason }) => [scene, posts, status, reason]),
     [
       [order[0], 36, 'budget_exhausted', 'scene_post_limit'],
-      [order[1], 2, 'script_deviation', 'ask_does_not_match_script'],
+      [order[1], 0, 'step_limit', 'lesson_beat_limit'],
       [order[2], 0, 'export_rejected', 'no_student_interaction'],
-      [order[3], 5, 'handoff', undefined],
+      [order[3], 0, 'student_failed', 'student_generation_failed'],
     ],
   );
-  assert.equal(run.totalPosts, 43);
+  assert.equal(run.totalPosts, 36);
   const reservations = ledger(join(out, 'post-ledger.jsonl')).filter(
     ({ event }) => event === 'reserved',
   );
   assert.deepEqual(
     reservations.map(({ seq }) => seq),
-    Array.from({ length: 43 }, (_, i) => i + 1),
+    Array.from({ length: 36 }, (_, i) => i + 1),
   );
   for (const result of run.results) {
     const rows = reservations.filter(({ scene }) => scene === result.scene);
@@ -156,19 +142,11 @@ test('M3 ordered run shares reservations and continues after cap, deviation and 
       Array.from({ length: result.posts }, (_, i) => i + 1),
     );
     const dir = join(out, result.scene);
-    assert.ok(existsSync(join(dir, 'studio.sqlite')));
     assert.deepEqual(readJson(join(dir, 'result.json')), result);
   }
-  assert.ok(existsSync(join(out, order[1], 'live-unmatched-ask.png')));
   assert.ok(!existsSync(join(out, order[2], 'export', 'plan.json')));
-  assert.deepEqual(
-    run.cells.map(({ cellId }) => cellId),
-    [run.results[3].sessionId],
-  );
-  assert.deepEqual(
-    run.sessions.map(({ sessionId }) => sessionId),
-    [run.results[3].sessionId],
-  );
+  assert.deepEqual(run.cells, []);
+  assert.deepEqual(run.sessions, []);
 });
 
 test('M3 no_handoff below the cap does not abort remaining scenes', async (t) => {
@@ -240,7 +218,7 @@ test('M3 unexpected export operational error halts the run', async (t) => {
   await assert.rejects(
     runScenes(out, options().scenes, livePolicy, t.signal, async (_scene, dir) => {
       mkdirSync(dir);
-      return { sessionId: 'synthetic-missing-db', state: 'handoff' };
+      return { sessionId: 'synthetic-missing-db', state: 'completed' };
     }),
     /Unexpected judge-export failure/,
   );
