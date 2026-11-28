@@ -112,7 +112,7 @@ export function createTeacherPlanner(
           return { ok: false as const, failure, trace, spans };
         continue;
       }
-      const checked = compileTeacherTurn(context, scene);
+      const checked = compileTeacherTurn(context, scene, captured.calculations);
       if (!checked.ok) {
         guardrails.push({ attempt, reasons: checked.reasons });
         continue;

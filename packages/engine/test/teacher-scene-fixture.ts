@@ -1,11 +1,5 @@
 import assert from 'node:assert/strict';
-import {
-  createFauxModelGateway,
-  fauxAssistantMessage,
-  fauxToolCall,
-  type ModelGateway,
-  ModelGenerationError,
-} from '../src/models.js';
+import { createFauxModelGateway, fauxAssistantMessage, fauxToolCall } from '../src/models.js';
 import type { Action } from '../src/protocol.js';
 import type { TeacherTurnContext, TeacherTurnOutput } from '../src/teacher.js';
 
@@ -86,22 +80,6 @@ export function offeredToolNames(
     for (const { name } of message.toolsAdded ?? []) names.add(name);
   }
   return [...names];
-}
-
-// Issue #4 owns the numerical audit. Reject scripted submissions after real offline tool use.
-export function withAuditRejections(
-  gateway: Pick<ModelGateway, 'generate'>,
-  ...submissions: (readonly string[])[]
-): Pick<ModelGateway, 'generate'> {
-  return {
-    async generate(request) {
-      const result = await gateway.generate(request);
-      const reasons = submissions.shift();
-      if (reasons)
-        throw new ModelGenerationError('model_invalid_output', result.durationMs, reasons);
-      return result;
-    },
-  };
 }
 
 export function localFaux(key = 'faux-engine-test-key') {

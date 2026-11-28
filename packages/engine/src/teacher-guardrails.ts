@@ -4,8 +4,10 @@ import {
   type TeacherTurnContext,
   teacherAnswerEvidence,
 } from './teacher-context.js';
+import { auditTeacherNumbers } from './teacher-numeric-audit.js';
 import type { TeacherTurnTrace } from './teacher-protocol.js';
 import type { TeacherTurnOutput, TurnPolicy } from './teacher-semantics.js';
+import type { TeacherCalculation } from './teacher-tools.js';
 
 const leadsWithAnswer =
   /(?:(?:正确|最终)的?(?:答案|选项|结果)|答案|选项)\s*(?:是|为|[:=])|\b(?:the |correct |final )?answer\s*(?:is\b|[:=])/giu;
@@ -40,14 +42,17 @@ export function revealsOpeningAnswer(text: string): boolean {
 function revealsOpening(scene: TeacherTurnOutput): boolean {
   const { panels, next_ask: ask } = scene;
   return [
-    ...panels.flatMap(({ title, content, formula, highlight, voiceover, diagram }) => [
-      title,
-      content,
-      formula,
-      highlight,
-      voiceover,
-      diagram?.description,
-    ]),
+    ...panels.flatMap(
+      ({ title, content, formula, highlight, voiceover, quoted_error, diagram }) => [
+        title,
+        content,
+        formula,
+        highlight,
+        voiceover,
+        quoted_error,
+        diagram?.description,
+      ],
+    ),
     ask?.prompt,
     ask?.hint,
     ...(ask?.options ?? []),
@@ -59,6 +64,7 @@ export function guardTeacherTurn(
   context: TeacherTurnContext,
   scene: TeacherTurnOutput,
   policy: TurnPolicy,
+  calculations: readonly TeacherCalculation[],
 ) {
   const { keypoints, currentIndex } = projectKeypointProgress(context.keypoints, context.played);
   const current = keypoints[currentIndex];
@@ -107,6 +113,7 @@ export function guardTeacherTurn(
   if (policy.phase === 'opening' && revealsOpening(scene)) {
     reasons.push('the scene explicitly reveals the answer in the opening');
   }
+  reasons.push(...auditTeacherNumbers(scene, calculations));
   if (reasons.length) return { ok: false as const, reasons };
 
   const trace: Pick<

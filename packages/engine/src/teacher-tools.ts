@@ -97,6 +97,8 @@ export const calcVerifyTeacherTool: TeacherTool = {
   traceResult: calcTraceResult,
 };
 
+export type TeacherCalculation = Readonly<{ expression: string; exactText: string }>;
+
 const initialToolBudget = 2;
 const numericRetryBudget = 1;
 export const maxTeacherToolCalls =
@@ -160,7 +162,15 @@ export async function runTeacherTool(
         span: span({ valid: false }),
       };
     }
-    return { observation, span: span(result) };
+    const calculation: TeacherCalculation | undefined =
+      tool === calcVerifyTeacherTool &&
+      Value.Check(CalcVerifyParamsSchema, input) &&
+      Value.Check(CalcVerifyResultSchema, result) &&
+      result.ok &&
+      !result.approximate
+        ? { expression: input.expression, exactText: result.text }
+        : undefined;
+    return { observation, span: span(result), calculation };
   } catch {
     return { error: `${tool.name} could not complete`, span: span({ valid: false }) };
   }
@@ -172,9 +182,11 @@ export function captureTeacherTools(
   spans: LessonTraceSpan[],
 ) {
   const observations: { tool: string; result: string }[] = [];
+  const calculations: TeacherCalculation[] = [];
   let durationMs = 0;
   return {
     observations,
+    calculations,
     get durationMs() {
       return durationMs;
     },
@@ -202,6 +214,7 @@ export function captureTeacherTools(
               const result = await runTeacherTool(tool, input, anchor);
               spans.push(result.span);
               durationMs += result.span.durationMs;
+              if (result.calculation) calculations.push(result.calculation);
               const observation = result.observation ?? JSON.stringify({ error: result.error });
               observations.push({ tool: tool.name, result: observation });
               return observation;

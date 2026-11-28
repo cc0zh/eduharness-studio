@@ -160,6 +160,8 @@ const calls = new Map<string, Call>([
   ['factorial', unary((x) => countProduct(x, x))],
 ]);
 
+export const isCalcFunction = (name: string) => calls.has(name);
+
 export function callMath(name: string, args: CalcValue[], position: number): CalcValue {
   const call = calls.get(name);
   if (!call) throw new CalcError('syntax_error', 'Unknown mathematical function.', position);

@@ -32,6 +32,8 @@ export function teacherSceneInstructions(policy: TurnPolicy) {
       : [
           `已上屏 ${playedBeats} 拍，${openPoints} 个要点尚无结果。预留收尾后还可用 ${Math.max(0, teachingBeats)} 拍；登记结果会释放对应预留。空间不够时省略可选标记、字幕或第二块板书。`,
         ]),
+    '数值用 bindings 声明精确算式（如 {"key":"healthy","expression":"10000-100"}），在同一板书的正文、公式和字幕中用 {{healthy}} 代入，不重复手写结果。没有数值时省略。近似关系用 ≈ 明示。',
+    '错算引用只放 quoted_error，正确推导放在正文、公式或字幕；系统会把引用单独标在板书上。',
     phaseInstructions[policy.phase],
     describeTeacherTurn(policy),
   ].join('\n');

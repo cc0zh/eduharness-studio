@@ -8,7 +8,6 @@ import {
   localFaux,
   offeredToolNames,
   scene,
-  withAuditRejections,
 } from './teacher-scene-fixture.js';
 
 const course: CourseBlueprint = {
@@ -151,14 +150,27 @@ test('lazy opening uses the same pruned scene contract on the first request and 
 
 test('lazy opening grants exactly one calculator call per numeric correction and stores the bounded evidence', async () => {
   const { gateway, setResponses, state } = localFaux();
-  const result = fauxResult(draft());
+  const input = draft();
+  const opening = (
+    content: string,
+    formula: string,
+    bindings?: { key: string; expression: string }[],
+  ) =>
+    fauxResult({
+      ...input,
+      opening: {
+        ...input.opening,
+        panels: [{ title: '筛查结果', content, formula, ...(bindings ? { bindings } : {}) }],
+      },
+    });
   const initialCalc = fauxNativeCall('calc_verify', { expression: '1 + 2' });
-  const first = 'numeric_mismatch at $.opening.panels[0].content';
-  const second = '算术校验失败：opening.panels[0].formula';
+  const first = 'numeric arithmetic at $.opening.panels[0].content: calc_verify gives 3, not 4';
+  const second =
+    'numeric arithmetic at $.opening.panels[0].formula: calc_verify gives 125, not 126';
   setResponses([
     initialCalc,
     initialCalc,
-    result,
+    opening('观察 1+2=4。', '1+2=3'),
     (request) => {
       assert.deepEqual(offeredToolNames(request.messages), ['emit_result', 'calc_verify']);
       assert.ok(JSON.stringify(request.messages).includes(first));
@@ -166,7 +178,7 @@ test('lazy opening grants exactly one calculator call per numeric correction and
     },
     (request) => {
       assert.deepEqual(offeredToolNames(request.messages), ['emit_result']);
-      return result;
+      return opening('约分。', '1e3 / 8 = 126');
     },
     (request) => {
       assert.deepEqual(offeredToolNames(request.messages), ['emit_result', 'calc_verify']);
@@ -177,14 +189,20 @@ test('lazy opening grants exactly one calculator call per numeric correction and
     },
     (request) => {
       assert.deepEqual(offeredToolNames(request.messages), ['emit_result']);
-      return result;
+      return opening('这一组有 {{count}} 个组合。', 'C(5,2)={{count}}', [
+        { key: 'count', expression: 'C(5,2)' },
+      ]);
     },
   ]);
   const { material } = await createCourseLessonPlanner(
-    withAuditRejections(gateway, [first], [second]),
+    gateway,
     {},
   )({ course, lesson, previousKeypoints: [] });
   assert.ok(validateLessonMaterial(material));
+  assert.equal(
+    material.script.actions.find((action) => action.type === 'board')?.content,
+    '这一组有 10 个组合。',
+  );
   assert.equal(state.callCount, 7);
   assert.deepEqual(
     material.openingEvidence?.tools?.map(({ result }) => (result as { value: number }).value),
