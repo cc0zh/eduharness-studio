@@ -254,7 +254,7 @@ function createGateway(
               outputEchoesCredential(value, selected.apiKey, env?.apiKey),
             output: {
               name: outputTool,
-              description: 'Return the structured result.',
+              description: 'Return the complete structured result in the single value argument.',
               parameters: Type.Object({ value: schema }, { additionalProperties: false }),
             },
             complete: async ({ messages, tools: definitions, correction }) => {

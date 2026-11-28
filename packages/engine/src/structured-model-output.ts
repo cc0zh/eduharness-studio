@@ -96,6 +96,8 @@ const issueLabel: Partial<Record<ValueErrorType, string>> = {
   [ValueErrorType.Boolean]: 'expected a boolean',
   [ValueErrorType.Integer]: 'expected an integer',
   [ValueErrorType.IntersectUnevaluatedProperties]: 'unexpected field',
+  [ValueErrorType.IntegerMaximum]: 'number exceeds allowed maximum',
+  [ValueErrorType.IntegerMinimum]: 'number is below allowed minimum',
   [ValueErrorType.ObjectAdditionalProperties]: 'unexpected field',
   [ValueErrorType.ObjectRequiredProperty]: 'missing required field',
   [ValueErrorType.Number]: 'expected a number',

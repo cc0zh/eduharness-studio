@@ -23,8 +23,14 @@ import { openingTurnPolicy } from './teacher-policy.js';
 import { teacherSceneInstructions } from './teacher-prompt.js';
 import { LessonBasisSchema, TeacherDiagnosisSchema } from './teacher-protocol.js';
 import {
+  maxTeacherAttempts,
+  modelRejectionReasons,
+  teacherCorrectionInstructions,
+} from './teacher-retry.js';
+import {
   calcVerifyTeacherTool,
   captureTeacherTools,
+  maxTeacherToolCalls,
   type TeacherTool,
   teacherToolInstructions,
 } from './teacher-tools.js';
@@ -84,12 +90,12 @@ const LessonOpeningEvidenceSchema = Type.Object(
     guardrails: Type.Array(
       Type.Object(
         {
-          attempt: Type.Integer({ minimum: 1, maximum: 3 }),
+          attempt: Type.Integer({ minimum: 1, maximum: maxTeacherAttempts }),
           reasons: Type.Array(short(220), { minItems: 1, maxItems: 20 }),
         },
         strict,
       ),
-      { maxItems: 2 },
+      { maxItems: maxTeacherAttempts - 1 },
     ),
     graph: Type.Optional(TeacherGraphEvidenceSchema),
     tools: Type.Optional(
@@ -103,7 +109,7 @@ const LessonOpeningEvidenceSchema = Type.Object(
           },
           strict,
         ),
-        { maxItems: 2 },
+        { maxItems: maxTeacherToolCalls },
       ),
     ),
   },
@@ -180,8 +186,9 @@ export function createCourseLessonPlanner(
     const spans: LessonTraceSpan[] = [];
     const captured = captureTeacherTools(tools, { generation: 1, step_id: 0 }, spans);
     let durationMs = 0;
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const toolBudget = attempt === 1 ? captured.maxToolCalls : 0;
+    for (let attempt = 1; attempt <= maxTeacherAttempts; attempt++) {
+      const previousReasons = guardrails.at(-1)?.reasons ?? [];
+      const attemptTools = captured.forAttempt(previousReasons);
       let result: { value: Static<typeof LessonDraftSchema>; durationMs: number };
       try {
         result = await gateway.generate({
@@ -189,14 +196,13 @@ export function createCourseLessonPlanner(
           normalizeOutput: normalizeLessonOpening,
           maxTokens: 4096,
           attempts: 1,
-          tools: toolBudget ? captured.tools : [],
-          maxToolCalls: toolBudget,
+          ...attemptTools,
           prompt: [
             'Prepare one concise, Chinese-language whiteboard lesson with no external search.',
             `Return ONLY top-level keys keypoints (${liveLessonKeypointCount.minItems}–${liveLessonKeypointCount.maxItems} progressive items), optional basis, and opening. The nested opening uses the following output contract:`,
             'Give each point a distinct, topic-specific title and an observable objective. Follow one concrete problem from observation to application; never use generic study steps as point titles.',
             teacherSceneInstructions(openingTurnPolicy),
-            teacherToolInstructions(tools, toolBudget),
+            teacherToolInstructions(attemptTools.tools, attemptTools.maxToolCalls),
             `Course: ${JSON.stringify({
               title: course.title,
               topic: course.topic,
@@ -210,9 +216,7 @@ export function createCourseLessonPlanner(
             captured.observations.length
               ? `工具结果：${JSON.stringify(captured.observations)}`
               : '',
-            guardrails.length
-              ? 'The previous submission was invalid. Rewrite the complete lesson using only the declared contract.'
-              : '',
+            teacherCorrectionInstructions(previousReasons),
           ]
             .filter(Boolean)
             .join('\n'),
@@ -221,10 +225,7 @@ export function createCourseLessonPlanner(
         if (!(error instanceof ModelGenerationError) || error.code !== 'model_invalid_output')
           throw error;
         durationMs += error.durationMs;
-        const reasons = error.reasons.length
-          ? error.reasons.map((reason) => `model_invalid_output: ${reason}`)
-          : ['emit a complete LessonDraft matching the declared schema'];
-        guardrails.push({ attempt, reasons });
+        guardrails.push({ attempt, reasons: modelRejectionReasons(error) });
         continue;
       }
       durationMs += result.durationMs;

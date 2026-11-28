@@ -1,37 +1,22 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Type } from '@sinclair/typebox';
-import { fauxAssistantMessage, fauxToolCall } from '../src/models.js';
 import { createTeacherPlanner } from '../src/teacher.js';
+import { calcVerifyTeacherTool } from '../src/teacher-tools.js';
 import {
   answeredContext,
   openingContext as context,
+  fauxNativeCall,
   fauxResult,
   localFaux,
   masteredScene,
+  offeredToolNames,
   scene,
+  withAuditRejections,
 } from './teacher-scene-fixture.js';
 
-const fauxNativeCall = (name: string, args: Parameters<typeof fauxToolCall>[1]) =>
-  fauxAssistantMessage(fauxToolCall(name, args), { stopReason: 'toolUse' });
 function toolText(message: { content: readonly { type: string; text?: string }[] }) {
   return message.content.find(({ type }) => type === 'text')?.text ?? '';
-}
-
-function offeredToolNames(
-  messages: readonly {
-    role: string;
-    toolsAdded?: readonly { name: string }[];
-    toolsRemoved?: readonly { name: string }[];
-  }[],
-) {
-  const names = new Set<string>();
-  for (const message of messages) {
-    if (message.role !== 'system') continue;
-    for (const { name } of message.toolsRemoved ?? []) names.delete(name);
-    for (const { name } of message.toolsAdded ?? []) names.add(name);
-  }
-  return [...names];
 }
 
 test('default planner runs real calc_verify through native pi-ai tool messages and traces its result', async () => {
@@ -152,7 +137,7 @@ test('two native tool steps reserve an emit-result-only request with both redact
   assert.deepEqual(accepted.trace.guardrails, []);
 });
 
-test('an invalid submission gets bounded corrections but never another tool budget', async () => {
+test('a nonnumeric rejection gets bounded corrections but never another tool budget', async () => {
   const { gateway, setResponses, state } = localFaux();
   const call = fauxNativeCall('calc_verify', { expression: '2 + 3' });
   setResponses([
@@ -163,7 +148,8 @@ test('an invalid submission gets bounded corrections but never another tool budg
       assert.deepEqual(offeredToolNames(request.messages), ['emit_result']);
       const prompt = JSON.stringify(request.messages);
       assert.match(prompt, /工具结果/);
-      assert.doesNotMatch(prompt, /resolution|insert_keypoint|checkpoint/);
+      assert.match(prompt, /\$\.resolution: unexpected field/);
+      assert.doesNotMatch(prompt, /insert_keypoint|checkpoint/);
       return fauxResult(scene());
     },
   ]);
@@ -184,6 +170,90 @@ test('an invalid submission gets bounded corrections but never another tool budg
   );
   assert.equal(rejected.spans.filter(({ kind }) => kind === 'tool').length, 0);
   assert.equal(noisy.state.callCount, 5);
+});
+
+test('teacher corrections use only the latest safe diagnostic, never credential values or fields', async () => {
+  const apiKey = 'faux:teacher/retry-key';
+  const secretFieldValue = 'faux-unrelated-output-secret';
+  const { gateway, setResponses, state } = localFaux(apiKey);
+  const prompt = (request: { messages: readonly { role: string; content: unknown }[] }) => {
+    const text = String(request.messages.find(({ role }) => role === 'user')?.content);
+    for (const secret of [apiKey, encodeURIComponent(apiKey), secretFieldValue, 'api_token']) {
+      assert.equal(JSON.stringify(request.messages).includes(secret), false);
+    }
+    return text;
+  };
+  setResponses([
+    (request) => {
+      assert.doesNotMatch(prompt(request), /违约原因/);
+      const valid = scene();
+      return fauxResult({
+        ...valid,
+        panels: [{ ...valid.panels[0], title: 5, api_token: secretFieldValue }],
+      });
+    },
+    (request) => {
+      const text = prompt(request);
+      assert.match(text, /\$\.panels\[0\]\.title: expected a string/);
+      assert.match(text, /\[sensitive-field\]/);
+      // Even a schema-valid bare result must reject a reflected BYOK key.
+      const valid = scene();
+      return fauxNativeCall('emit_result', {
+        ...valid,
+        panels: [{ ...valid.panels[0], content: encodeURIComponent(apiKey) }],
+      });
+    },
+    (request) => {
+      const text = prompt(request);
+      assert.match(text, /structured output contains a \[sensitive-field\]/);
+      assert.doesNotMatch(text, /expected a string/);
+      return fauxResult(scene());
+    },
+  ]);
+  const accepted = await createTeacherPlanner(gateway)(context, []);
+  assert.ok(accepted.ok);
+  assert.equal(state.callCount, 3);
+  assert.equal(accepted.trace.guardrails.length, 2);
+  for (const secret of [apiKey, encodeURIComponent(apiKey), secretFieldValue, 'api_token']) {
+    assert.equal(JSON.stringify(accepted).includes(secret), false);
+  }
+});
+
+test('teacher gets one calc_verify after arithmetic rejection even if its initial budget was spent', async () => {
+  const { gateway, setResponses, state } = localFaux();
+  const numeric = 'ARITHMETIC_VALIDATION_FAILED at panels[0].formula';
+  const verified = scene();
+  const initialCalc = fauxNativeCall('calc_verify', { expression: '2 + 3' });
+  setResponses([
+    initialCalc,
+    initialCalc,
+    fauxResult(verified),
+    (request) => {
+      assert.deepEqual(offeredToolNames(request.messages), ['emit_result', 'calc_verify']);
+      assert.ok(JSON.stringify(request.messages).includes(numeric));
+      return fauxNativeCall('calc_verify', { expression: '10000 - 100' });
+    },
+    (request) => {
+      assert.deepEqual(offeredToolNames(request.messages), ['emit_result']);
+      const observation = request.messages.find((message) => message.role === 'toolResult');
+      assert.ok(observation);
+      assert.match(toolText(observation), /"text":"9900"/);
+      return fauxResult({ ...verified, next_ask: { ...verified.next_ask, options: ['同', '同'] } });
+    },
+    (request) => {
+      assert.deepEqual(offeredToolNames(request.messages), ['emit_result']);
+      assert.match(JSON.stringify(request.messages), /choice labels must be distinct/);
+      assert.doesNotMatch(JSON.stringify(request.messages), /ARITHMETIC_VALIDATION_FAILED/);
+      return fauxResult(verified);
+    },
+  ]);
+  const accepted = await createTeacherPlanner(withAuditRejections(gateway, [numeric]), [
+    calcVerifyTeacherTool,
+    { ...calcVerifyTeacherTool, name: 'other_tool' },
+  ])(context, []);
+  assert.ok(accepted.ok);
+  assert.equal(state.callCount, 6);
+  assert.equal(accepted.spans.filter(({ kind }) => kind === 'tool').length, 3);
 });
 
 test('faux student proceeds from a played ordinary question to a new transfer and then to mastery', async () => {

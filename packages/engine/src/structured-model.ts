@@ -75,6 +75,7 @@ export class ModelGenerationError extends Error {
   constructor(
     public readonly code: FailureCode,
     public readonly durationMs: number,
+    /** Safe diagnostics only: no provider text, rejected values or credentials. */
     public readonly reasons: readonly string[] = [],
   ) {
     super(code);
